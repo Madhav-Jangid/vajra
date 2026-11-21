@@ -40,6 +40,10 @@ func (p *PieceBoards) Occupied() Bitboard {
 var HasCheck bool
 var NumberOfMoves int
 
+var Castling uint8
+var EnPassant = -1
+var Halfmove int
+
 func InitializeBitBoard() {
 	BOARD = PieceBoards{}
 
@@ -61,6 +65,9 @@ func InitializeBitBoard() {
 
 	HasCheck = false
 	NumberOfMoves = 0
+	Castling = 15
+	EnPassant = -1
+	Halfmove = 0
 }
 
 type PieceType int

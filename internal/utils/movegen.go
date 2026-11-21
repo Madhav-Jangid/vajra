@@ -8,7 +8,6 @@ type Moves []int
 type Directions [][2]int
 
 func GenerateMoves(square int) Moves {
-	chess.HasCheck = false
 	if square < 0 || square >= 64 {
 		return nil
 	}
@@ -84,7 +83,6 @@ func GenerateMoves(square int) Moves {
 			f += direction[1]
 		}
 	}
-	moves = FilterMoves(moves)
 	return moves
 }
 func GetQueensDirections() Directions {
@@ -141,16 +139,25 @@ func GetKingsMoves(square int, color chess.Color) Moves {
 			}
 		}
 
-		enemy := chess.White
-		if color == chess.White {
-			enemy = chess.Black
-		}
-
-		if IsSquareAttacked(moveSquare, enemy, chess.BOARD) {
-			continue
-		}
-
 		moves = append(moves, moveSquare)
+	}
+
+	home, enemy := 4, chess.Black
+	kingSide, queenSide := CastleWK, CastleWQ
+	if color == chess.Black {
+		home, enemy = 60, chess.White
+		kingSide, queenSide = CastleBK, CastleBQ
+	}
+	empty := func(sq int) bool { return !IsSquareOccupied(&chess.BOARD, sq) }
+	if square == home && !IsSquareAttacked(home, enemy, chess.BOARD) {
+		if chess.Castling&kingSide != 0 && empty(home+1) && empty(home+2) &&
+			!IsSquareAttacked(home+1, enemy, chess.BOARD) {
+			moves = append(moves, home+2)
+		}
+		if chess.Castling&queenSide != 0 && empty(home-1) && empty(home-2) && empty(home-3) &&
+			!IsSquareAttacked(home-1, enemy, chess.BOARD) {
+			moves = append(moves, home-2)
+		}
 	}
 
 	return moves
@@ -217,33 +224,24 @@ func GetPawnsMoves(square int, color chess.Color) Moves {
 		}
 	}
 
-	// Capture left
-	if file > 0 {
-		capture := square + forward - 1
-
-		if capture >= 0 && capture < 64 {
-			if IsSquareOccupied(&chess.BOARD, capture) {
-				target := GetPieceAt(capture)
-
-				if target.Color != color {
-					moves = append(moves, capture)
-				}
-			}
-		}
+	epRank := 5 // rank index a white pawn captures en passant onto
+	if color == chess.Black {
+		epRank = 2
 	}
-
-	// Capture right
-	if file < 7 {
-		capture := square + forward + 1
-
-		if capture >= 0 && capture < 64 {
-			if IsSquareOccupied(&chess.BOARD, capture) {
-				target := GetPieceAt(capture)
-
-				if target.Color != color {
-					moves = append(moves, capture)
-				}
+	for _, df := range []int{-1, 1} {
+		if file+df < 0 || file+df > 7 {
+			continue
+		}
+		capture := square + forward + df
+		if capture < 0 || capture >= 64 {
+			continue
+		}
+		if IsSquareOccupied(&chess.BOARD, capture) {
+			if GetPieceAt(capture).Color != color {
+				moves = append(moves, capture)
 			}
+		} else if capture == chess.EnPassant && capture/8 == epRank {
+			moves = append(moves, capture)
 		}
 	}
 

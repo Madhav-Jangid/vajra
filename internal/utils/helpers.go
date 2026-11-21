@@ -82,6 +82,11 @@ func GetColor(pieceType chess.PieceType) chess.Color {
 	}
 }
 
+// SquareName converts a square index to algebraic notation, e.g. 12 -> "e2".
+func SquareName(sq int) string {
+	return string(rune('a'+sq%8)) + string(rune('1'+sq/8))
+}
+
 func ParseMove(move string) []int {
 	move = strings.Trim(move, " ")
 	if len(move) != 4 {
@@ -141,26 +146,10 @@ func MakeMove(from, to int) bool {
 		return false
 	}
 
-	piece := GetPieceAt(from)
-
-	if piece.Type == chess.Empty {
+	if GetPieceAt(from).Type == chess.Empty || !slices.Contains(LegalMoves(from), to) {
 		return false
 	}
-
-	board := getPieceBoard(piece)
-
-	if board == nil {
-		return false
-	}
-
-	moves := GenerateMoves(from)
-	if !slices.Contains(moves, to) {
-		fmt.Println("Invalid Move")
-		return false
-	}
-	ClearSquare(&chess.BOARD, to) // remove captured piece, if any
-	*board &= ^(chess.Bitboard(1) << from)
-	*board |= chess.Bitboard(1) << to
+	applyMove(from, to)
 	return true
 }
 
@@ -286,23 +275,6 @@ func IsSquareAttacked(square int, by chess.Color, b chess.PieceBoards) bool {
 		return false
 	}
 	return ray(GetRooksDirections(), rook) || ray(GetBishopsDirections(), bishop)
-}
-
-func FilterMoves(moves Moves) Moves {
-	var fMoves Moves
-	cBoard := chess.BOARD
-	for _, move := range moves {
-		ClearSquare(&cBoard, move)
-		checkedKing := ListenCheck()
-		chess.HasCheck = checkedKing >= 0
-		if checkedKing == -1 {
-			fMoves = append(fMoves, move)
-		}
-		cBoard = chess.BOARD
-	}
-	fmt.Println(moves)
-	fmt.Println(fMoves)
-	return fMoves
 }
 
 func CheckTurn() chess.Color {
