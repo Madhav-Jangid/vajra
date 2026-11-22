@@ -34,6 +34,9 @@ func start() {
 		}
 		fmt.Printf("%s to move:- ", name(turn))
 		if !in.Scan() {
+			if err := in.Err(); err != nil {
+				fmt.Fprintln(os.Stderr, err)
+			}
 			return
 		}
 		input := strings.ToLower(strings.TrimSpace(in.Text()))

@@ -2,7 +2,6 @@ package chess
 
 import (
 	"fmt"
-	"log"
 	"strconv"
 	"strings"
 )
@@ -270,6 +269,5 @@ func (p Position) ValidateFen() (bool, error) {
 	if pos != p {
 		return false, nil
 	}
-	log.Println(cFen)
 	return true, nil
 }
