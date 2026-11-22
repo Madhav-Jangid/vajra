@@ -4,15 +4,9 @@ import (
 	"bufio"
 	"fmt"
 	"os"
-	"regexp"
 	"strings"
 	"vajra/internal/chess"
 	"vajra/internal/utils"
-)
-
-var (
-	squareRe = regexp.MustCompile(`^[a-h][1-8]$`)
-	moveRe   = regexp.MustCompile(`^[a-h][1-8][a-h][1-8]$`)
 )
 
 func name(c chess.Color) string {
@@ -22,88 +16,74 @@ func name(c chess.Color) string {
 	return "Black"
 }
 
-func main() {
+func start() {
 	fmt.Println("Welcome to cli chess")
-	fmt.Println("Enter moves like e2e4. Commands: moves e2, new, exit")
+	fmt.Println("Enter moves like e2e4 (e7e8q to promote). Commands: moves e2, new, exit")
 	fmt.Println()
 
-	chess.InitializeBitBoard()
-	turn := chess.White
-	seen := map[string]int{utils.PositionKey(turn): 1}
+	pos := &chess.CurrentPosition
+	seen := map[string]int{pos.Key(): 1}
 	utils.PrintBoard()
 
 	in := bufio.NewScanner(os.Stdin)
-	if in.Err() != nil {
-		return
-	}
 	for {
+		turn := pos.SideToMove
 		fmt.Println()
-		if utils.InCheck(turn) {
+		if pos.InCheck(turn) {
 			fmt.Println("Check!")
 		}
 		fmt.Printf("%s to move:- ", name(turn))
 		if !in.Scan() {
 			return
 		}
-		move := strings.ToLower(strings.TrimSpace(in.Text()))
+		input := strings.ToLower(strings.TrimSpace(in.Text()))
 		fmt.Println()
 
 		switch {
-		case move == "":
+		case input == "":
 			continue
-		case move == "exit" || move == "quit":
+		case input == "exit" || input == "quit":
 			return
-		case move == "new":
-			chess.InitializeBitBoard()
-			turn = chess.White
-			seen = map[string]int{utils.PositionKey(turn): 1}
+		case input == "new":
+			if err := chess.SetUpInitialPosition(); err != nil {
+				fmt.Println(err)
+				return
+			}
+			seen = map[string]int{pos.Key(): 1}
 			utils.PrintBoard()
 			continue
-		case strings.HasPrefix(move, "moves "):
-			sq := strings.TrimSpace(move[len("moves "):])
-			if !squareRe.MatchString(sq) {
+		case strings.HasPrefix(input, "moves "):
+			sq, err := utils.ParseSquare(strings.TrimSpace(input[len("moves "):]))
+			if err != nil {
 				fmt.Println("Usage: moves e2")
 				continue
 			}
-			idx := utils.ParseMove(sq + sq)
-			if idx == nil {
-				fmt.Println("Usage: moves e2")
-				continue
-			}
-			for _, to := range utils.LegalMoves(idx[0]) {
-				fmt.Print(utils.SquareName(to), " ")
+			for _, mv := range pos.LegalMoves(sq) {
+				fmt.Print(utils.SquareName(mv.To), " ")
 			}
 			fmt.Println()
 			continue
 		}
 
-		if !moveRe.MatchString(move) {
+		from, to, promo, err := utils.ParseMove(input, turn)
+		if err != nil {
 			fmt.Println("Invalid input. Use a move like e2e4.")
 			continue
 		}
-		idx := utils.ParseMove(move)
-		if idx == nil {
-			fmt.Println("Invalid input. Use a move like e2e4.")
-			continue
-		}
-		if p := utils.GetPieceAt(idx[0]); p.Type == chess.Empty || p.Color != turn {
+		if p := utils.GetPieceAt(from); p.Type == chess.Empty || p.Color != turn {
 			fmt.Println("No", strings.ToLower(name(turn)), "piece on that square.")
 			continue
 		}
-		if !utils.MakeMove(idx[0], idx[1]) {
+		if !pos.PlayMove(from, to, promo) {
 			fmt.Println("Illegal move.")
 			continue
 		}
 
-		if turn == chess.White {
-			turn = chess.Black
-		} else {
-			turn = chess.White
-		}
+		turn = pos.SideToMove
 		utils.PrintBoard()
 
-		status := utils.Status(turn)
-		key := utils.PositionKey(turn)
+		status := pos.Status(turn)
+		key := pos.Key()
 		seen[key]++
 		if status == "" && seen[key] >= 3 {
 			status = "threefold repetition"
@@ -116,4 +96,12 @@ func main() {
 			return
 		}
 	}
+}
+
+func main() {
+	if err := chess.SetUpInitialPosition(); err != nil {
+		fmt.Println(err)
+		return
+	}
+	start()
 }
