@@ -142,10 +142,10 @@ func (b *PieceBoards) SetPiece(piece PieceType, square int) {
 	}
 }
 
-func SetUpInitialPosition() error {
-	startingPosition := "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
+var StartingFEN = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
 
-	position, err := ParseFEN(startingPosition)
+func SetUpInitialPosition() error {
+	position, err := ParseFEN(StartingFEN)
 	if err != nil {
 		return err
 	}

@@ -28,6 +28,13 @@ func benchmarkPosition() chess.Position {
 	})
 }
 
+func setOrdering(enabled bool) (restore func()) {
+	old := UseMoveOrdering
+	UseMoveOrdering = enabled
+
+	return func() { UseMoveOrdering = old }
+}
+
 func BenchmarkSearchOrdering(b *testing.B) {
 	for _, ordering := range []bool{false, true} {
 		name := "WithoutOrdering"
@@ -36,7 +43,7 @@ func BenchmarkSearchOrdering(b *testing.B) {
 		}
 
 		b.Run(name, func(b *testing.B) {
-			UseMoveOrdering = ordering
+			defer setOrdering(ordering)()
 
 			var totalNodes uint64
 
@@ -45,16 +52,12 @@ func BenchmarkSearchOrdering(b *testing.B) {
 			for i := 0; i < b.N; i++ {
 				p := benchmarkPosition()
 
-				Nodes = 0
-				Search(&p, 4)
+				Search(&p, 4, 0)
 
 				totalNodes += Nodes
 			}
 
-			b.ReportMetric(
-				float64(totalNodes)/float64(b.N),
-				"nodes/search",
-			)
+			b.ReportMetric(float64(totalNodes)/float64(b.N), "nodes/search")
 		})
 	}
 }
