@@ -58,6 +58,10 @@ func evalSide(p *chess.Position) int {
 }
 
 func expired(deadline time.Time) bool {
+	if stopRequested.Load() {
+		return true
+	}
+
 	return !deadline.IsZero() && time.Now().After(deadline)
 }
 
@@ -105,10 +109,23 @@ func searchRoot(
 	state *SearchState,
 ) (move chess.Move, found bool, completed bool) {
 
+	move, found, completed, _ = searchRootScored(p, depth, deadline, prevBest, state)
+
+	return move, found, completed
+}
+
+func searchRootScored(
+	p *chess.Position,
+	depth int,
+	deadline time.Time,
+	prevBest chess.Move,
+	state *SearchState,
+) (move chess.Move, found bool, completed bool, score int) {
+
 	moves := allMoves(p)
 
 	if len(moves) == 0 {
-		return move, false, true
+		return move, false, true, 0
 	}
 
 	if UseMoveOrdering {
@@ -126,17 +143,17 @@ func searchRoot(
 
 	for i, m := range moves {
 		if expired(deadline) {
-			return move, found, false
+			return move, found, false, alpha
 		}
 
-		score, ok := searchMove(p, m, depth-1, 1, alpha, Infinity, i, deadline, state)
+		child, ok := searchMove(p, m, depth-1, 1, alpha, Infinity, i, deadline, state)
 
 		if !ok {
-			return move, found, false
+			return move, found, false, alpha
 		}
 
-		if score > alpha {
-			alpha = score
+		if child > alpha {
+			alpha = child
 			move = m
 			found = true
 		}
@@ -144,7 +161,7 @@ func searchRoot(
 
 	TT.Store(hash, depth, scoreToTT(alpha, 0), TTExact, move)
 
-	return move, found, true
+	return move, found, true, alpha
 }
 
 func Search(

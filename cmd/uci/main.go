@@ -1,7 +1,15 @@
 package main
 
-import "fmt"
+import (
+	"fmt"
+	"os"
+
+	"vajra/internal/uci"
+)
 
 func main() {
-	fmt.Println("UCI is called")
+	if err := uci.New(os.Stdin, os.Stdout).Run(); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
 }
