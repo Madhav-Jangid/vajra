@@ -764,6 +764,7 @@ func TestNegamaxDepthZeroUsesQuiescence(t *testing.T) {
 		-Infinity,
 		Infinity,
 		time.Time{},
+		&SearchState{},
 	)
 
 	if !ok || got != want {

@@ -12,6 +12,7 @@ const (
 
 type TTEntry struct {
 	Key      uint64
+	Valid    bool
 	Depth    int
 	Score    int
 	Flag     TTFlag
@@ -57,7 +58,7 @@ func (tt *TranspositionTable) Probe(key uint64) (TTEntry, bool) {
 
 	entry := tt.entries[tt.index(key)]
 
-	if entry.Key != key {
+	if !entry.Valid || entry.Key != key {
 		return TTEntry{}, false
 	}
 
@@ -78,12 +79,13 @@ func (tt *TranspositionTable) Store(
 	index := tt.index(key)
 	old := tt.entries[index]
 
-	if old.Key != 0 && old.Key == key && old.Depth > depth {
+	if old.Valid && old.Key == key && old.Depth > depth {
 		return
 	}
 
 	tt.entries[index] = TTEntry{
 		Key:      key,
+		Valid:    true,
 		Depth:    depth,
 		Score:    score,
 		Flag:     flag,

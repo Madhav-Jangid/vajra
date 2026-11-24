@@ -71,7 +71,7 @@ func (p *Position) UnmakeMove(move Move, undo Undo) {
 	p.HalfmoveClock = undo.HalfmoveClock
 	p.FullmoveNumber = undo.FullmoveNumber
 
-	color := p.SideToMove
+	color := GetColor(move.Piece)
 
 	p.Board.ClearSquare(to)
 	p.Board.SetPiece(move.Piece, from)

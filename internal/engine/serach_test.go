@@ -160,12 +160,16 @@ func fromRows(side chess.Color, rows []string) *chess.Position {
 func reset(t *testing.T) {
 	t.Helper()
 
-	oldOrdering := UseMoveOrdering
+	oldOrdering, oldLMR := UseMoveOrdering, UseLMR
 
 	TT.Clear()
 	history = nil
 	GameHistory = nil
 	UseMoveOrdering = true
+
+	// LMR is lossy, so exact-score tests run with it off. LMR tests
+	// turn it on explicitly after reset.
+	UseLMR = false
 	Nodes = 0
 
 	t.Cleanup(func() {
@@ -173,6 +177,7 @@ func reset(t *testing.T) {
 		history = nil
 		GameHistory = nil
 		UseMoveOrdering = oldOrdering
+		UseLMR = oldLMR
 	})
 }
 
@@ -280,6 +285,7 @@ func TestNegamaxMatchesBruteForceAtMultipleDepths(t *testing.T) {
 					-Infinity,
 					Infinity,
 					time.Time{},
+					&SearchState{},
 				)
 
 				t.Logf(
@@ -755,7 +761,7 @@ func TestNegamaxTerminalScores(t *testing.T) {
 		p := fromRows(chess.Black, blackMatedRows)
 
 		for _, ply := range []int{0, 1, 3, 10} {
-			score, ok := negamax(p, 2, ply, -Infinity, Infinity, time.Time{})
+			score, ok := negamax(p, 2, ply, -Infinity, Infinity, time.Time{}, &SearchState{})
 
 			if !ok || score != -MateScore+ply {
 				t.Fatalf("ply %d: got %d ok=%v, want %d", ply, score, ok, -MateScore+ply)
@@ -767,7 +773,7 @@ func TestNegamaxTerminalScores(t *testing.T) {
 		reset(t)
 		p := fromRows(chess.Black, blackMatedRows)
 
-		score, ok := negamax(p, 0, 2, -Infinity, Infinity, time.Time{})
+		score, ok := negamax(p, 0, 2, -Infinity, Infinity, time.Time{}, &SearchState{})
 
 		if !ok || score != -MateScore+2 {
 			t.Fatalf("got %d ok=%v", score, ok)
@@ -778,7 +784,7 @@ func TestNegamaxTerminalScores(t *testing.T) {
 		reset(t)
 		p := fromRows(chess.Black, stalemateRows)
 
-		score, ok := negamax(p, 3, 1, -Infinity, Infinity, time.Time{})
+		score, ok := negamax(p, 3, 1, -Infinity, Infinity, time.Time{}, &SearchState{})
 
 		if !ok || score != 0 {
 			t.Fatalf("got %d ok=%v, want 0", score, ok)
@@ -790,7 +796,7 @@ func TestNegamaxTerminalScores(t *testing.T) {
 		reset(t)
 		p := fromRows(chess.White, queenUpRows)
 
-		score, ok := negamax(p, 0, 0, -Infinity, Infinity, time.Time{})
+		score, ok := negamax(p, 0, 0, -Infinity, Infinity, time.Time{}, &SearchState{})
 
 		if !ok || score != evalSide(p) {
 			t.Fatalf("got %d, want %d", score, evalSide(p))
@@ -801,7 +807,7 @@ func TestNegamaxTerminalScores(t *testing.T) {
 		reset(t)
 		p := fromRows(chess.White, mateInOneWhiteRows)
 
-		score, ok := negamax(p, 1, 0, -Infinity, Infinity, time.Time{})
+		score, ok := negamax(p, 1, 0, -Infinity, Infinity, time.Time{}, &SearchState{})
 
 		if !ok || score != MateScore-1 {
 			t.Fatalf("got %d, want %d", score, MateScore-1)
@@ -812,7 +818,7 @@ func TestNegamaxTerminalScores(t *testing.T) {
 		reset(t)
 		p := fromRows(chess.Black, mateInOneBlackRows)
 
-		score, ok := negamax(p, 1, 0, -Infinity, Infinity, time.Time{})
+		score, ok := negamax(p, 1, 0, -Infinity, Infinity, time.Time{}, &SearchState{})
 
 		if !ok || score != MateScore-1 {
 			t.Fatalf("got %d, want %d", score, MateScore-1)
@@ -826,7 +832,7 @@ func TestNegamaxDraws(t *testing.T) {
 		p := fromRows(chess.White, queenUpRows)
 		p.HalfmoveClock = 100
 
-		score, ok := negamax(p, 0, 0, -Infinity, Infinity, time.Time{})
+		score, ok := negamax(p, 0, 0, -Infinity, Infinity, time.Time{}, &SearchState{})
 
 		if !ok || score != 0 {
 			t.Fatalf("got %d, want 0", score)
@@ -838,7 +844,7 @@ func TestNegamaxDraws(t *testing.T) {
 		p := fromRows(chess.White, queenUpRows)
 		p.HalfmoveClock = 130
 
-		score, _ := negamax(p, 2, 0, -Infinity, Infinity, time.Time{})
+		score, _ := negamax(p, 2, 0, -Infinity, Infinity, time.Time{}, &SearchState{})
 
 		if score != 0 {
 			t.Fatalf("got %d, want 0", score)
@@ -850,7 +856,7 @@ func TestNegamaxDraws(t *testing.T) {
 		p := fromRows(chess.White, queenUpRows)
 		p.HalfmoveClock = 99
 
-		score, _ := negamax(p, 0, 0, -Infinity, Infinity, time.Time{})
+		score, _ := negamax(p, 0, 0, -Infinity, Infinity, time.Time{}, &SearchState{})
 
 		if score <= 0 {
 			t.Fatalf("got %d, want positive", score)
@@ -862,7 +868,7 @@ func TestNegamaxDraws(t *testing.T) {
 		p := fromRows(chess.White, queenUpRows)
 		p.HalfmoveClock = 99
 
-		score, _ := negamax(p, 1, 0, -Infinity, Infinity, time.Time{})
+		score, _ := negamax(p, 1, 0, -Infinity, Infinity, time.Time{}, &SearchState{})
 
 		if score != 0 {
 			t.Fatalf("got %d, want 0", score)
@@ -874,7 +880,7 @@ func TestNegamaxDraws(t *testing.T) {
 		p := fromRows(chess.White, queenUpRows)
 		p.HalfmoveClock = 98
 
-		score, _ := negamax(p, 1, 0, -Infinity, Infinity, time.Time{})
+		score, _ := negamax(p, 1, 0, -Infinity, Infinity, time.Time{}, &SearchState{})
 
 		if score <= 0 {
 			t.Fatalf("got %d, want positive", score)
@@ -886,7 +892,7 @@ func TestNegamaxDraws(t *testing.T) {
 		p := fromRows(chess.White, knightDownRows)
 		p.HalfmoveClock = 0
 
-		score, ok := negamax(p, 0, 0, -Infinity, Infinity, time.Time{})
+		score, ok := negamax(p, 0, 0, -Infinity, Infinity, time.Time{}, &SearchState{})
 
 		if !ok || score != 0 {
 			t.Fatalf("got %d, want 0", score)
@@ -898,7 +904,7 @@ func TestNegamaxDraws(t *testing.T) {
 		p := fromRows(chess.White, knightDownRows)
 		p.HalfmoveClock = 5
 
-		score, _ := negamax(p, 0, 0, -Infinity, Infinity, time.Time{})
+		score, _ := negamax(p, 0, 0, -Infinity, Infinity, time.Time{}, &SearchState{})
 
 		if score == 0 {
 			t.Fatal("expected non-zero evaluation when gate is closed")
@@ -909,7 +915,7 @@ func TestNegamaxDraws(t *testing.T) {
 		reset(t)
 		p := fromRows(chess.White, kingVsKingRows)
 
-		score, _ := negamax(p, 3, 0, -Infinity, Infinity, time.Time{})
+		score, _ := negamax(p, 3, 0, -Infinity, Infinity, time.Time{}, &SearchState{})
 
 		if score != 0 {
 			t.Fatalf("got %d, want 0", score)
@@ -923,7 +929,7 @@ func TestNegamaxDraws(t *testing.T) {
 
 		history = []uint64{HashPosition(p), 0}
 
-		score, ok := negamax(p, 0, 2, -Infinity, Infinity, time.Time{})
+		score, ok := negamax(p, 0, 2, -Infinity, Infinity, time.Time{}, &SearchState{})
 
 		if !ok || score != 0 {
 			t.Fatalf("got %d, want 0", score)
@@ -937,7 +943,7 @@ func TestNegamaxDraws(t *testing.T) {
 
 		history = []uint64{HashPosition(p), 0}
 
-		score, _ := negamax(p, 0, 2, -Infinity, Infinity, time.Time{})
+		score, _ := negamax(p, 0, 2, -Infinity, Infinity, time.Time{}, &SearchState{})
 
 		if score <= 0 {
 			t.Fatalf("got %d, want positive", score)
@@ -950,7 +956,7 @@ func TestNegamaxDraws(t *testing.T) {
 		p.HalfmoveClock = 100
 		history = []uint64{1, 2}
 
-		negamax(p, 2, 0, -Infinity, Infinity, time.Time{})
+		negamax(p, 2, 0, -Infinity, Infinity, time.Time{}, &SearchState{})
 
 		if len(history) != 2 {
 			t.Fatalf("history length %d, want 2", len(history))
@@ -965,7 +971,7 @@ func TestNegamaxTranspositionTable(t *testing.T) {
 
 		TT.Store(HashPosition(p), 10, 1234, TTExact, chess.Move{})
 
-		score, ok := negamax(p, 3, 0, -Infinity, Infinity, time.Time{})
+		score, ok := negamax(p, 3, 0, -Infinity, Infinity, time.Time{}, &SearchState{})
 
 		if !ok || score != 1234 {
 			t.Fatalf("got %d, want 1234", score)
@@ -978,7 +984,7 @@ func TestNegamaxTranspositionTable(t *testing.T) {
 
 		TT.Store(HashPosition(p), 0, 7777, TTExact, chess.Move{})
 
-		score, _ := negamax(p, 2, 0, -Infinity, Infinity, time.Time{})
+		score, _ := negamax(p, 2, 0, -Infinity, Infinity, time.Time{}, &SearchState{})
 
 		if score == 7777 {
 			t.Fatal("entry with insufficient depth must not be used")
@@ -991,7 +997,7 @@ func TestNegamaxTranspositionTable(t *testing.T) {
 
 		TT.Store(HashPosition(p), 2, 4321, TTExact, chess.Move{})
 
-		score, _ := negamax(p, 2, 0, -Infinity, Infinity, time.Time{})
+		score, _ := negamax(p, 2, 0, -Infinity, Infinity, time.Time{}, &SearchState{})
 
 		if score != 4321 {
 			t.Fatalf("got %d, want 4321", score)
@@ -1004,7 +1010,7 @@ func TestNegamaxTranspositionTable(t *testing.T) {
 
 		TT.Store(HashPosition(p), 10, 5000, TTLowerBound, chess.Move{})
 
-		score, ok := negamax(p, 3, 0, -Infinity, 4000, time.Time{})
+		score, ok := negamax(p, 3, 0, -Infinity, 4000, time.Time{}, &SearchState{})
 
 		if !ok || score != 5000 {
 			t.Fatalf("got %d, want 5000", score)
@@ -1017,7 +1023,7 @@ func TestNegamaxTranspositionTable(t *testing.T) {
 
 		TT.Store(HashPosition(p), 10, -5000, TTUpperBound, chess.Move{})
 
-		score, ok := negamax(p, 3, 0, -4000, Infinity, time.Time{})
+		score, ok := negamax(p, 3, 0, -4000, Infinity, time.Time{}, &SearchState{})
 
 		if !ok || score != -5000 {
 			t.Fatalf("got %d, want -5000", score)
@@ -1030,7 +1036,7 @@ func TestNegamaxTranspositionTable(t *testing.T) {
 
 		TT.Store(HashPosition(p), 10, scoreToTT(MateScore-3, 2), TTExact, chess.Move{})
 
-		score, _ := negamax(p, 3, 4, -Infinity, Infinity, time.Time{})
+		score, _ := negamax(p, 3, 4, -Infinity, Infinity, time.Time{}, &SearchState{})
 
 		if score != MateScore-5 {
 			t.Fatalf("got %d, want %d", score, MateScore-5)
@@ -1041,7 +1047,7 @@ func TestNegamaxTranspositionTable(t *testing.T) {
 		reset(t)
 		p := fromRows(chess.White, queenUpRows)
 
-		score, _ := negamax(p, 2, 0, -Infinity, Infinity, time.Time{})
+		score, _ := negamax(p, 2, 0, -Infinity, Infinity, time.Time{}, &SearchState{})
 
 		entry, ok := TT.Probe(HashPosition(p))
 
@@ -1058,7 +1064,7 @@ func TestNegamaxTranspositionTable(t *testing.T) {
 		reset(t)
 		p := fromRows(chess.White, queenUpRows)
 
-		negamax(p, 1, 0, Infinity-1, Infinity, time.Time{})
+		negamax(p, 1, 0, Infinity-1, Infinity, time.Time{}, &SearchState{})
 
 		entry, ok := TT.Probe(HashPosition(p))
 
@@ -1071,7 +1077,7 @@ func TestNegamaxTranspositionTable(t *testing.T) {
 		reset(t)
 		p := fromRows(chess.White, queenUpRows)
 
-		negamax(p, 1, 0, -Infinity, -MateScore, time.Time{})
+		negamax(p, 1, 0, -Infinity, -MateScore, time.Time{}, &SearchState{})
 
 		entry, ok := TT.Probe(HashPosition(p))
 
@@ -1084,7 +1090,7 @@ func TestNegamaxTranspositionTable(t *testing.T) {
 		reset(t)
 		p := fromRows(chess.White, sparseRows)
 
-		negamax(p, 2, 0, -Infinity, Infinity, time.Time{})
+		negamax(p, 2, 0, -Infinity, Infinity, time.Time{}, &SearchState{})
 
 		entry, ok := TT.Probe(HashPosition(p))
 
@@ -1099,7 +1105,7 @@ func TestNegamaxDeadline(t *testing.T) {
 	p := fromRows(chess.White, startRows)
 
 	before := *p
-	score, ok := negamax(p, 4, 0, -Infinity, Infinity, time.Now().Add(-time.Second))
+	score, ok := negamax(p, 4, 0, -Infinity, Infinity, time.Now().Add(-time.Second), &SearchState{})
 
 	if ok || score != 0 {
 		t.Fatalf("expired deadline must return (0,false), got (%d,%v)", score, ok)
@@ -1157,6 +1163,7 @@ func TestNegamaxMatchesBruteForce(t *testing.T) {
 				-Infinity,
 				Infinity,
 				time.Time{},
+				&SearchState{},
 			)
 
 			t.Logf("negamax finished: %d", got)
@@ -1182,7 +1189,7 @@ func TestNegamaxMatchesBruteForce(t *testing.T) {
 		p := fromRows(chess.White, sparseRows)
 		want := brute(p, 3, 0)
 
-		got, _ := negamax(p, 3, 0, -Infinity, Infinity, time.Time{})
+		got, _ := negamax(p, 3, 0, -Infinity, Infinity, time.Time{}, &SearchState{})
 
 		if got != want {
 			t.Fatalf("got %d, want %d", got, want)
@@ -1194,9 +1201,9 @@ func TestNegamaxMatchesBruteForce(t *testing.T) {
 		p := fromRows(chess.White, sparseRows)
 		want := brute(p, 3, 0)
 
-		negamax(p, 2, 0, -Infinity, Infinity, time.Time{})
+		negamax(p, 2, 0, -Infinity, Infinity, time.Time{}, &SearchState{})
 
-		got, _ := negamax(p, 3, 0, -Infinity, Infinity, time.Time{})
+		got, _ := negamax(p, 3, 0, -Infinity, Infinity, time.Time{}, &SearchState{})
 
 		if got != want {
 			t.Fatalf("got %d, want %d", got, want)
@@ -1209,7 +1216,7 @@ func TestSearchRoot(t *testing.T) {
 		reset(t)
 		p := fromRows(chess.White, mateInOneWhiteRows)
 
-		move, found, completed := searchRoot(p, 1, time.Time{}, chess.Move{})
+		move, found, completed := searchRoot(p, 1, time.Time{}, chess.Move{}, &SearchState{})
 
 		if !found || !completed {
 			t.Fatalf("found=%v completed=%v", found, completed)
@@ -1226,7 +1233,7 @@ func TestSearchRoot(t *testing.T) {
 		for _, rows := range [][]string{blackMatedRows, stalemateRows} {
 			p := fromRows(chess.Black, rows)
 
-			_, found, completed := searchRoot(p, 3, time.Time{}, chess.Move{})
+			_, found, completed := searchRoot(p, 3, time.Time{}, chess.Move{}, &SearchState{})
 
 			if found || !completed {
 				t.Fatalf("found=%v completed=%v", found, completed)
@@ -1238,7 +1245,7 @@ func TestSearchRoot(t *testing.T) {
 		reset(t)
 		p := fromRows(chess.White, startRows)
 
-		_, found, completed := searchRoot(p, 3, time.Now().Add(-time.Second), chess.Move{})
+		_, found, completed := searchRoot(p, 3, time.Now().Add(-time.Second), chess.Move{}, &SearchState{})
 
 		if found || completed {
 			t.Fatalf("found=%v completed=%v", found, completed)
@@ -1249,7 +1256,7 @@ func TestSearchRoot(t *testing.T) {
 		reset(t)
 		p := fromRows(chess.White, sparseRows)
 
-		move, _, completed := searchRoot(p, 2, time.Time{}, chess.Move{})
+		move, _, completed := searchRoot(p, 2, time.Time{}, chess.Move{}, &SearchState{})
 
 		entry, ok := TT.Probe(HashPosition(p))
 
@@ -1266,7 +1273,7 @@ func TestSearchRoot(t *testing.T) {
 		reset(t)
 		p := fromRows(chess.White, startRows)
 
-		searchRoot(p, 3, time.Now().Add(-time.Second), chess.Move{})
+		searchRoot(p, 3, time.Now().Add(-time.Second), chess.Move{}, &SearchState{})
 
 		if _, ok := TT.Probe(HashPosition(p)); ok {
 			t.Fatal("interrupted search must not store the root")
@@ -1279,7 +1286,7 @@ func TestSearchRoot(t *testing.T) {
 		snapshot := *p
 		history = []uint64{1, 2, 3}
 
-		searchRoot(p, 3, time.Time{}, chess.Move{})
+		searchRoot(p, 3, time.Time{}, chess.Move{}, &SearchState{})
 
 		if !samePosition(snapshot, *p) {
 			t.Fatal("position not restored")
@@ -1295,7 +1302,7 @@ func TestSearchRoot(t *testing.T) {
 		p := fromRows(chess.White, startRows)
 		history = []uint64{1, 2, 3}
 
-		searchRoot(p, 3, time.Now().Add(-time.Second), chess.Move{})
+		searchRoot(p, 3, time.Now().Add(-time.Second), chess.Move{}, &SearchState{})
 
 		if len(history) != 3 {
 			t.Fatalf("history length %d, want 3", len(history))
@@ -1804,4 +1811,570 @@ func newPosition(
 	}
 
 	return p
+}
+
+func TestHistoryMovePerformance(t *testing.T) {
+	fens := map[string]string{
+		"start":      chess.StartingFEN,
+		"middlegame": "r1bq1rk1/ppp2ppp/2np1n2/2b1p3/2B1P3/2NP1N2/PPP2PPP/R1BQ1RK1 w - - 0 7",
+		"kiwipete":   "r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 0 1",
+	}
+
+	const depth = 4
+
+	run := func(p chess.Position, useHistory bool) (int, uint64) {
+		old := UseHistory
+		UseHistory = useHistory
+		defer func() { UseHistory = old }()
+
+		reset(t)
+
+		score, ok := negamax(&p, depth, 0, -Infinity, Infinity, time.Time{}, &SearchState{})
+		if !ok {
+			t.Fatal("search did not complete")
+		}
+
+		return score, Nodes
+	}
+
+	for name, fen := range fens {
+		pos, err := chess.ParseFEN(fen)
+		if err != nil {
+			t.Fatalf("%s: bad FEN: %v", name, err)
+		}
+
+		offScore, offNodes := run(pos, false)
+		onScore, onNodes := run(pos, true)
+
+		t.Logf("%s: history disabled nodes: %d", name, offNodes)
+		t.Logf("%s: history enabled  nodes: %d", name, onNodes)
+
+		if onScore != offScore {
+			t.Fatalf("%s: history changed the score: enabled=%d disabled=%d", name, onScore, offScore)
+		}
+	}
+}
+
+func TestHistoryTableUpdate(t *testing.T) {
+	var h HistoryTable
+
+	m := chess.Move{From: 12, To: 28, Piece: chess.WhitePawn}
+
+	h.update(chess.White, m, 3)
+
+	if got := h.get(chess.White, m); got != 9 {
+		t.Fatalf("history = %d, want 9", got)
+	}
+
+	if got := h.get(chess.Black, m); got != 0 {
+		t.Fatalf("history leaked to other side: %d", got)
+	}
+
+	for i := 0; i < 1000; i++ {
+		h.update(chess.White, m, 10)
+	}
+
+	if got := h.get(chess.White, m); got != maxHistory {
+		t.Fatalf("history = %d, want cap %d", got, maxHistory)
+	}
+}
+
+func withFlags(ordering, history, pvs bool) func() {
+	oldO, oldH, oldP := UseMoveOrdering, UseHistory, UsePVS
+	UseMoveOrdering, UseHistory, UsePVS = ordering, history, pvs
+
+	return func() { UseMoveOrdering, UseHistory, UsePVS = oldO, oldH, oldP }
+}
+
+var benchFENs = []struct{ name, fen string }{
+	{"start", chess.StartingFEN},
+	{"middlegame", "r1bq1rk1/ppp2ppp/2np1n2/2b1p3/2B1P3/2NP1N2/PPP2PPP/R1BQ1RK1 w - - 0 7"},
+	{"kiwipete", "r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 0 1"},
+}
+
+// searchScore runs a fresh full-window search and returns score and nodes.
+func searchScore(t *testing.T, p chess.Position, depth int, ordering, history, pvs bool) (int, uint64) {
+	t.Helper()
+
+	reset(t)
+
+	// reset forces ordering on, so flags are applied after it.
+	restore := withFlags(ordering, history, pvs)
+	defer restore()
+
+	score, ok := negamax(&p, depth, 0, -Infinity, Infinity, time.Time{}, &SearchState{})
+	if !ok {
+		t.Fatal("search did not complete")
+	}
+
+	return score, Nodes
+}
+
+func TestPVSMatchesBruteForce(t *testing.T) {
+	for _, side := range []chess.Color{chess.White, chess.Black} {
+		for depth := 1; depth <= 3; depth++ {
+			for _, pvs := range []bool{false, true} {
+				reset(t)
+				want := brute(fromRows(side, sparseRows), depth, 0)
+
+				got, _ := searchScore(t, *fromRows(side, sparseRows), depth, true, true, pvs)
+				ok := true
+
+				if !ok || got != want {
+					t.Fatalf("side=%v depth=%d pvs=%v: negamax=%d brute=%d ok=%v", side, depth, pvs, got, want, ok)
+				}
+			}
+		}
+	}
+}
+
+func TestPVSMatchesNormalSearch(t *testing.T) {
+	for _, tc := range benchFENs {
+		pos, err := chess.ParseFEN(tc.fen)
+		if err != nil {
+			t.Fatalf("%s: %v", tc.name, err)
+		}
+
+		offScore, _ := searchScore(t, pos, 4, true, true, false)
+		onScore, _ := searchScore(t, pos, 4, true, true, true)
+
+		if onScore != offScore {
+			t.Fatalf("%s: PVS changed score: pvs=%d normal=%d", tc.name, onScore, offScore)
+		}
+	}
+}
+
+func TestPVSPerformance(t *testing.T) {
+	var offTotal, onTotal uint64
+
+	for _, tc := range benchFENs {
+		pos, err := chess.ParseFEN(tc.fen)
+		if err != nil {
+			t.Fatalf("%s: %v", tc.name, err)
+		}
+
+		offScore, offNodes := searchScore(t, pos, 4, true, true, false)
+		onScore, onNodes := searchScore(t, pos, 4, true, true, true)
+
+		t.Logf("%s: PVS disabled nodes: %d", tc.name, offNodes)
+		t.Logf("%s: PVS enabled  nodes: %d", tc.name, onNodes)
+
+		if onScore != offScore {
+			t.Fatalf("%s: PVS changed score: pvs=%d normal=%d", tc.name, onScore, offScore)
+		}
+
+		offTotal += offNodes
+		onTotal += onNodes
+	}
+
+	t.Logf("total: PVS disabled %d, PVS enabled %d", offTotal, onTotal)
+}
+
+type orderCfg struct {
+	name                     string
+	ordering, killers, histo bool
+}
+
+// searchScoreCfg runs a fresh full-window search (PVS off, so only
+// the ordering heuristics differ) and returns score and nodes.
+func searchScoreCfg(t *testing.T, p chess.Position, depth int, c orderCfg) (int, uint64) {
+	t.Helper()
+
+	reset(t)
+
+	oldO, oldK, oldH, oldP := UseMoveOrdering, UseKillers, UseHistory, UsePVS
+	UseMoveOrdering, UseKillers, UseHistory, UsePVS = c.ordering, c.killers, c.histo, false
+
+	defer func() { UseMoveOrdering, UseKillers, UseHistory, UsePVS = oldO, oldK, oldH, oldP }()
+
+	score, ok := negamax(&p, depth, 0, -Infinity, Infinity, time.Time{}, &SearchState{})
+	if !ok {
+		t.Fatal("search did not complete")
+	}
+
+	return score, Nodes
+}
+
+func TestKillerTableStore(t *testing.T) {
+	var k KillerTable
+
+	a := chess.Move{From: 12, To: 28, Piece: chess.WhitePawn}
+	b := chess.Move{From: 6, To: 21, Piece: chess.WhiteKnight}
+	c := chess.Move{From: 1, To: 18, Piece: chess.WhiteKnight}
+
+	k.store(3, a)
+	k.store(3, a) // duplicate must not push itself into slot 1
+	if k.isKiller(3, a) != 0 || k.isKiller(3, b) != -1 {
+		t.Fatal("first killer should sit in slot 0 only")
+	}
+
+	k.store(3, b)
+	if k.isKiller(3, b) != 0 || k.isKiller(3, a) != 1 {
+		t.Fatal("new killer should shift the old one to slot 1")
+	}
+
+	k.store(3, c)
+	if k.isKiller(3, c) != 0 || k.isKiller(3, b) != 1 || k.isKiller(3, a) != -1 {
+		t.Fatal("only the two most recent killers should be kept")
+	}
+
+	if k.isKiller(4, c) != -1 {
+		t.Fatal("killers must be per ply")
+	}
+
+	// Out of range plies must be ignored, not panic.
+	k.store(-1, a)
+	k.store(MaxPly, a)
+
+	if k.isKiller(MaxPly, a) != -1 || k.isKiller(-1, a) != -1 {
+		t.Fatal("out of range ply must report no killer")
+	}
+}
+
+func TestKillerOrderingRanksBetweenCapturesAndQuiet(t *testing.T) {
+	state := &SearchState{}
+
+	quiet := chess.Move{From: 8, To: 16, Piece: chess.WhitePawn}
+	killer := chess.Move{From: 9, To: 17, Piece: chess.WhitePawn}
+	capture := chess.Move{From: 10, To: 35, Piece: chess.WhitePawn, Captured: chess.BlackQueen, Flags: chess.Capture}
+
+	state.killers.store(2, killer)
+	state.history.update(chess.White, quiet, 10) // history favours the plain quiet move
+
+	moves := []chess.Move{quiet, killer, capture}
+
+	oldK, oldH := UseKillers, UseHistory
+	UseKillers, UseHistory = true, true
+
+	defer func() { UseKillers, UseHistory = oldK, oldH }()
+
+	orderMovesHeuristic(moves, chess.White, 2, state)
+
+	if !sameMove(moves[0], capture) || !sameMove(moves[1], killer) || !sameMove(moves[2], quiet) {
+		t.Fatalf("want capture, killer, quiet; got %+v", moves)
+	}
+
+	// Different ply: killer no longer applies.
+	moves = []chess.Move{killer, quiet, capture}
+	orderMovesHeuristic(moves, chess.White, 5, state)
+
+	if !sameMove(moves[1], quiet) {
+		t.Fatalf("killer must not apply at another ply; got %+v", moves)
+	}
+}
+
+// TestKillerMovePerformance measures killers alone against the same
+// ordering without them. Scores must be identical.
+func TestKillerMovePerformance(t *testing.T) {
+	for _, tc := range benchFENs {
+		pos, err := chess.ParseFEN(tc.fen)
+		if err != nil {
+			t.Fatalf("%s: %v", tc.name, err)
+		}
+
+		offScore, offNodes := searchScoreCfg(t, pos, 4, orderCfg{"captures", true, false, false})
+		onScore, onNodes := searchScoreCfg(t, pos, 4, orderCfg{"captures+killers", true, true, false})
+
+		t.Logf("%s: killers disabled nodes: %d", tc.name, offNodes)
+		t.Logf("%s: killers enabled  nodes: %d", tc.name, onNodes)
+
+		if onScore != offScore {
+			t.Fatalf("%s: killers changed score: on=%d off=%d", tc.name, onScore, offScore)
+		}
+	}
+}
+
+// TestOrderingContributions measures each ordering stage on its own.
+func TestOrderingContributions(t *testing.T) {
+	configs := []orderCfg{
+		{"no ordering", false, false, false},
+		{"captures", true, false, false},
+		{"captures+killers", true, true, false},
+		{"captures+history", true, false, true},
+		{"all", true, true, true},
+	}
+
+	for _, tc := range benchFENs {
+		pos, err := chess.ParseFEN(tc.fen)
+		if err != nil {
+			t.Fatalf("%s: %v", tc.name, err)
+		}
+
+		var want int
+
+		haveWant := false
+
+		for _, c := range configs {
+			// Unordered search explodes on tactical positions, so the
+			// no-ordering baseline only runs on the start position.
+			if !c.ordering && tc.name != "start" {
+				continue
+			}
+
+			score, nodes := searchScoreCfg(t, pos, 4, c)
+
+			t.Logf("%-11s %-17s nodes: %d", tc.name, c.name, nodes)
+
+			if !haveWant {
+				want, haveWant = score, true
+			} else if score != want {
+				t.Fatalf("%s/%s: score %d != baseline %d", tc.name, c.name, score, want)
+			}
+		}
+	}
+}
+
+// lmrRun searches with every other heuristic on and only LMR varied.
+func lmrRun(t *testing.T, p chess.Position, depth int, lmr bool) (int, uint64) {
+	t.Helper()
+
+	reset(t)
+
+	oldL := UseLMR
+	UseLMR = lmr
+
+	defer func() { UseLMR = oldL }()
+
+	score, ok := negamax(&p, depth, 0, -Infinity, Infinity, time.Time{}, &SearchState{})
+	if !ok {
+		t.Fatal("search did not complete")
+	}
+
+	return score, Nodes
+}
+
+func TestLMRReductionRules(t *testing.T) {
+	old := UseLMR
+	defer func() { UseLMR = old }()
+
+	UseLMR = true
+
+	for index := 0; index < lmrFullMoves; index++ {
+		if lmrReduction(index, 6, true) != 0 {
+			t.Fatalf("early move %d must not be reduced", index)
+		}
+	}
+
+	if lmrReduction(lmrFullMoves, 6, false) != 0 {
+		t.Fatal("captures/promotions must not be reduced")
+	}
+
+	if lmrReduction(lmrFullMoves, lmrMinChildDepth-1, true) != 0 {
+		t.Fatal("shallow moves must not be reduced")
+	}
+
+	if got := lmrReduction(lmrFullMoves, 6, true); got != 1 {
+		t.Fatalf("late move reduction = %d, want 1", got)
+	}
+
+	if got := lmrReduction(2*lmrFullMoves, 6, true); got != 2 {
+		t.Fatalf("very late move reduction = %d, want 2", got)
+	}
+
+	for depth := lmrMinChildDepth; depth < 8; depth++ {
+		if got := lmrReduction(100, depth, true); depth-got < 1 {
+			t.Fatalf("depth %d reduced by %d, must leave at least 1 ply", depth, got)
+		}
+	}
+
+	UseLMR = false
+
+	if lmrReduction(100, 6, true) != 0 {
+		t.Fatal("no reduction when LMR is off")
+	}
+}
+
+// With LMR off the search is exact, so it must still agree with brute force.
+func TestLMRDisabledMatchesBruteForce(t *testing.T) {
+	for _, side := range []chess.Color{chess.White, chess.Black} {
+		for depth := 1; depth <= 3; depth++ {
+			reset(t)
+
+			want := brute(fromRows(side, sparseRows), depth, 0)
+			got, _ := lmrRun(t, *fromRows(side, sparseRows), depth, false)
+
+			if got != want {
+				t.Fatalf("side=%v depth=%d: negamax=%d brute=%d", side, depth, got, want)
+			}
+		}
+	}
+}
+
+// LMR is lossy in general, but it must never lose a forced mate.
+func TestLMRStillFindsMates(t *testing.T) {
+	tests := []struct {
+		name  string
+		fen   string
+		depth int
+	}{
+		{"mate in 1", "6k1/5ppp/8/8/8/8/5PPP/3R2K1 w - - 0 1", 3},
+		{"mate in 2", "kbK5/pp6/1P6/8/8/8/8/R7 w - - 0 1", 5},
+	}
+
+	for _, tt := range tests {
+		pos, err := chess.ParseFEN(tt.fen)
+		if err != nil {
+			t.Fatalf("%s: %v", tt.name, err)
+		}
+
+		offScore, _ := lmrRun(t, pos, tt.depth, false)
+		onScore, _ := lmrRun(t, pos, tt.depth, true)
+
+		if offScore < MateScore-1000 {
+			t.Fatalf("%s: baseline did not find the mate (score %d)", tt.name, offScore)
+		}
+
+		if onScore != offScore {
+			t.Fatalf("%s: LMR changed mate score: on=%d off=%d", tt.name, onScore, offScore)
+		}
+	}
+}
+
+// LMR may change scores slightly. Log the difference and require it
+// to stay small so a broken reduction is caught.
+func TestLMRScoreDeviation(t *testing.T) {
+	const maxDeviation = 150 // centipawns
+
+	for _, tc := range benchFENs {
+		pos, err := chess.ParseFEN(tc.fen)
+		if err != nil {
+			t.Fatalf("%s: %v", tc.name, err)
+		}
+
+		offScore, _ := lmrRun(t, pos, 5, false)
+		onScore, _ := lmrRun(t, pos, 5, true)
+
+		diff := onScore - offScore
+		if diff < 0 {
+			diff = -diff
+		}
+
+		t.Logf("%s: LMR off score %d, LMR on score %d (diff %d)", tc.name, offScore, onScore, diff)
+
+		if diff > maxDeviation {
+			t.Fatalf("%s: LMR score deviates by %d cp (max %d)", tc.name, diff, maxDeviation)
+		}
+	}
+}
+
+func TestLMRPerformance(t *testing.T) {
+	var offTotal, onTotal uint64
+
+	for _, tc := range benchFENs {
+		pos, err := chess.ParseFEN(tc.fen)
+		if err != nil {
+			t.Fatalf("%s: %v", tc.name, err)
+		}
+
+		_, offNodes := lmrRun(t, pos, 5, false)
+		_, onNodes := lmrRun(t, pos, 5, true)
+
+		t.Logf("%s: LMR disabled nodes: %d", tc.name, offNodes)
+		t.Logf("%s: LMR enabled  nodes: %d", tc.name, onNodes)
+
+		offTotal += offNodes
+		onTotal += onNodes
+	}
+
+	t.Logf("total: LMR disabled %d, LMR enabled %d", offTotal, onTotal)
+}
+
+const underpromotionMateFEN = "1nb5/Pnk1K3/2p5/8/8/8/8/8 w - - 0 1"
+
+func TestUnderpromotionToKnightMate(t *testing.T) {
+	pos, err := chess.ParseFEN(underpromotionMateFEN)
+	if err != nil {
+		t.Fatalf("ParseFEN: %v", err)
+	}
+
+	promotions := map[chess.PieceType]bool{}
+
+	for _, m := range allMoves(&pos) {
+		if m.From == sq("a7") && m.To == sq("a8") {
+			promotions[m.Promotion] = true
+		}
+	}
+
+	for _, want := range []chess.PieceType{chess.WhiteQueen, chess.WhiteRook, chess.WhiteBishop, chess.WhiteKnight} {
+		if !promotions[want] {
+			t.Fatalf("a7-a8 promotion to piece %v was not generated (got %v)", want, promotions)
+		}
+	}
+
+	var knight chess.Move
+
+	for _, m := range allMoves(&pos) {
+		if m.From == sq("a7") && m.To == sq("a8") && m.Promotion == chess.WhiteKnight {
+			knight = m
+		}
+	}
+
+	undo := pos.MakeMove(knight)
+	mated := pos.InCheck(chess.Black) && len(allMoves(&pos)) == 0
+	pos.UnmakeMove(knight, undo)
+
+	if !mated {
+		t.Fatal("a8=N should be checkmate")
+	}
+
+	for depth := 1; depth <= 5; depth++ {
+		p, _ := chess.ParseFEN(underpromotionMateFEN)
+
+		reset(t)
+
+		UseLMR = true
+
+		move, ok := Search(&p, depth, 0)
+		nodes := Nodes
+
+		if !ok {
+			t.Fatalf("depth %d: no move found", depth)
+		}
+
+		p2, _ := chess.ParseFEN(underpromotionMateFEN)
+
+		reset(t)
+
+		score, _ := negamax(&p2, depth, 0, -Infinity, Infinity, time.Time{}, &SearchState{})
+
+		t.Logf("depth %d: %s%s promotion=%v score=%d nodes=%d",
+			depth, SquareName(move.From), SquareName(move.To), move.Promotion, score, nodes)
+
+		if move.From != sq("a7") || move.To != sq("a8") {
+			t.Fatalf("depth %d: played %s%s, want a7a8", depth, SquareName(move.From), SquareName(move.To))
+		}
+
+		if move.Promotion != chess.WhiteKnight {
+			t.Fatalf("depth %d: promoted to %v, want knight", depth, move.Promotion)
+		}
+
+		if score != MateScore-1 {
+			t.Fatalf("depth %d: score %d, want mate in 1 (%d)", depth, score, MateScore-1)
+		}
+	}
+}
+
+func TestQueenPromotionIsNotMate(t *testing.T) {
+	pos, err := chess.ParseFEN(underpromotionMateFEN)
+	if err != nil {
+		t.Fatalf("ParseFEN: %v", err)
+	}
+
+	for _, m := range allMoves(&pos) {
+		if m.From != sq("a7") || m.To != sq("a8") || m.Promotion != chess.WhiteQueen {
+			continue
+		}
+
+		undo := pos.MakeMove(m)
+		mated := pos.InCheck(chess.Black) && len(allMoves(&pos)) == 0
+		pos.UnmakeMove(m, undo)
+
+		if mated {
+			t.Fatal("a8=Q must not be checkmate in this position")
+		}
+
+		return
+	}
+
+	t.Fatal("a8=Q was not generated")
 }
