@@ -22,6 +22,17 @@ var GameHistory []uint64
 
 var history []uint64
 
+const MaxPly = 128
+
+type SearchState struct {
+	killers KillerTable
+	history HistoryTable
+}
+
+type KillerTable struct {
+	moves [MaxPly][2]chess.Move
+}
+
 func allMoves(p *chess.Position) []chess.Move {
 	var moves []chess.Move
 
@@ -91,6 +102,7 @@ func searchRoot(
 	depth int,
 	deadline time.Time,
 	prevBest chess.Move,
+	state *SearchState,
 ) (move chess.Move, found bool, completed bool) {
 
 	moves := allMoves(p)
@@ -100,7 +112,7 @@ func searchRoot(
 	}
 
 	if UseMoveOrdering {
-		orderMoves(moves)
+		orderMovesHeuristic(moves, p.SideToMove, 0, state)
 	}
 
 	moves = putTTMoveFirst(moves, prevBest)
@@ -112,21 +124,19 @@ func searchRoot(
 
 	alpha := -Infinity
 
-	for _, m := range moves {
+	for i, m := range moves {
 		if expired(deadline) {
 			return move, found, false
 		}
 
-		undo := p.MakeMove(m)
-		score, ok := negamax(p, depth-1, 1, -Infinity, -alpha, deadline)
-		p.UnmakeMove(m, undo)
+		score, ok := searchMove(p, m, depth-1, 1, alpha, Infinity, i, deadline, state)
 
 		if !ok {
 			return move, found, false
 		}
 
-		if -score > alpha {
-			alpha = -score
+		if score > alpha {
+			alpha = score
 			move = m
 			found = true
 		}
@@ -144,8 +154,9 @@ func Search(
 ) (chess.Move, bool) {
 
 	deadline := startSearch(timeLimit)
+	state := &SearchState{}
 
-	move, found, _ := searchRoot(p, max(depth, 1), deadline, chess.Move{})
+	move, found, _ := searchRoot(p, max(depth, 1), deadline, chess.Move{}, state)
 
 	return move, found
 }
@@ -157,6 +168,7 @@ func negamax(
 	alpha int,
 	beta int,
 	deadline time.Time,
+	state *SearchState,
 ) (int, bool) {
 
 	Nodes++
@@ -214,7 +226,7 @@ func negamax(
 	}
 
 	if UseMoveOrdering {
-		orderMoves(moves)
+		orderMovesHeuristic(moves, p.SideToMove, ply, state)
 
 		if hit {
 			moves = putTTMoveFirst(moves, entry.BestMove)
@@ -224,23 +236,31 @@ func negamax(
 	bestScore := -Infinity
 	var bestMove chess.Move
 
-	for _, move := range moves {
-		undo := p.MakeMove(move)
-		score, ok := negamax(p, depth-1, ply+1, -beta, -alpha, deadline)
-		p.UnmakeMove(move, undo)
+	for i, move := range moves {
+		score, ok := searchMove(p, move, depth-1, ply+1, alpha, beta, i, deadline, state)
 
 		if !ok {
 			return 0, false
 		}
 
-		if -score > bestScore {
-			bestScore = -score
+		if score > bestScore {
+			bestScore = score
 			bestMove = move
 		}
 
 		alpha = max(alpha, bestScore)
 
 		if alpha >= beta {
+			if isQuiet(move) {
+				if UseHistory {
+					state.history.update(p.SideToMove, move, depth)
+				}
+
+				if UseKillers {
+					state.killers.store(ply, move)
+				}
+			}
+
 			break
 		}
 	}
@@ -268,9 +288,10 @@ func IterativeSearch(
 
 	var best chess.Move
 	found := false
+	state := &SearchState{}
 
 	for depth := 1; depth <= maxDepth; depth++ {
-		move, ok, completed := searchRoot(p, depth, deadline, best)
+		move, ok, completed := searchRoot(p, depth, deadline, best, state)
 
 		if ok {
 			best, found = move, true

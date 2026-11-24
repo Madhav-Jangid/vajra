@@ -57,7 +57,6 @@ func HashPosition(p *chess.Position) uint64 {
 
 	hash ^= zobristCastle[int(p.CastlingRights)]
 
-	// 64 means "no en-passant square".
 	ep := 64
 
 	if p.EnPassant >= 0 && p.EnPassant < 64 {

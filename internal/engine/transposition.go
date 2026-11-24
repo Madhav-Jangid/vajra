@@ -78,7 +78,6 @@ func (tt *TranspositionTable) Store(
 	index := tt.index(key)
 	old := tt.entries[index]
 
-	// Replace an empty entry or an entry searched at a shallower depth.
 	if old.Key != 0 && old.Key == key && old.Depth > depth {
 		return
 	}
