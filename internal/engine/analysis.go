@@ -18,11 +18,13 @@ func ClearStop() { stopRequested.Store(false) }
 
 // SearchInfo describes one completed iteration of IterativeSearchWithInfo.
 type SearchInfo struct {
-	Depth   int
-	Score   int
-	Nodes   uint64
-	Elapsed time.Duration
-	Best    chess.Move
+	Depth    int
+	Score    int
+	Nodes    uint64
+	HashFull int
+	Elapsed  time.Duration
+	Best     chess.Move
+	PV       []chess.Move
 }
 
 // MateIn returns how many moves away a mate score is (positive when the side to
@@ -47,6 +49,7 @@ func IterativeSearchWithInfo(
 	timeLimit time.Duration,
 	report func(SearchInfo),
 ) (chess.Move, bool) {
+	defer func() { NodeLimit = 0 }()
 
 	start := time.Now()
 	deadline := startSearch(timeLimit)
@@ -55,12 +58,20 @@ func IterativeSearchWithInfo(
 	var best chess.Move
 
 	found := false
+	prevScore := 0
 
 	for depth := 1; depth <= maxDepth; depth++ {
-		move, ok, completed, score := searchRootScored(p, depth, deadline, best, state)
+		if timeLimit > 0 && found && depth >= 2 && time.Since(start) >= (timeLimit*2)/3 {
+			break
+		}
+
+		move, ok, completed, score := searchRootAspiration(p, depth, prevScore, found, deadline, best, state)
 
 		if ok {
 			best, found = move, true
+			if completed {
+				prevScore = score
+			}
 		}
 
 		if !completed {
@@ -69,11 +80,13 @@ func IterativeSearchWithInfo(
 
 		if report != nil && ok {
 			report(SearchInfo{
-				Depth:   depth,
-				Score:   score,
-				Nodes:   Nodes,
-				Elapsed: time.Since(start),
-				Best:    best,
+				Depth:    depth,
+				Score:    score,
+				Nodes:    Nodes,
+				HashFull: TT.HashFull(),
+				Elapsed:  time.Since(start),
+				Best:     best,
+				PV:       extractPV(p, best, max(depth, 1)),
 			})
 		}
 
@@ -89,6 +102,44 @@ func IterativeSearchWithInfo(
 	}
 
 	return best, found
+}
+
+func extractPV(p *chess.Position, rootMove chess.Move, maxLen int) []chess.Move {
+	if rootMove.From == rootMove.To || maxLen <= 0 {
+		return nil
+	}
+	pos := *p
+	pv := make([]chess.Move, 0, maxLen)
+	seen := make(map[uint64]bool, maxLen)
+
+	cur := rootMove
+	for i := 0; i < maxLen; i++ {
+		legal := false
+		for _, m := range allMoves(&pos) {
+			if sameMove(m, cur) {
+				cur = m
+				legal = true
+				break
+			}
+		}
+		if !legal {
+			break
+		}
+		pv = append(pv, cur)
+		pos.MakeMove(cur)
+		h := HashPosition(&pos)
+		if seen[h] {
+			break
+		}
+		seen[h] = true
+
+		entry, hit := TT.Probe(transpositionKey(&pos))
+		if !hit || entry.BestMove.From == entry.BestMove.To {
+			break
+		}
+		cur = entry.BestMove
+	}
+	return pv
 }
 
 // mateProven reports whether a mate score has been searched one ply deeper than

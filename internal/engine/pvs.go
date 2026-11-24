@@ -27,6 +27,14 @@ func lmrReduction(index, childDepth int, quiet bool) int {
 		r = 2
 	}
 
+	if index >= 12 && childDepth >= 6 {
+		r = 3
+	}
+
+	if index >= 20 && childDepth >= 8 {
+		r = 4
+	}
+
 	return min(r, childDepth-1)
 }
 
@@ -46,6 +54,9 @@ func searchMove(
 
 		if quiet && !p.InCheck(p.SideToMove) {
 			reduce = lmrReduction(index, depth, quiet)
+			if reduce > 1 && state != nil && state.killers.isKiller(ply-1, move) >= 0 {
+				reduce--
+			}
 		}
 	}
 

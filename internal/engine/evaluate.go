@@ -253,6 +253,10 @@ func evalColor(
 		case own&mask == 0:
 			e.Pieces += rookSemiOpenFile
 		}
+
+		if relRank(sq, color) == 6 {
+			e.Pieces += taper(15, 25, phase)
+		}
 	})
 
 	ownOcc := uint64(pawns | knights | bishops | rooks | queens | king)
@@ -314,13 +318,14 @@ func EvaluateBreakdown(p *chess.Position) EvalBreakdown {
 
 	w.KingSafety -= taper(dangerOnWhite, 0, phase)
 	k.KingSafety -= taper(dangerOnBlack, 0, phase)
+	mopUp := kingCornerMopUp(b, phase, w.Material, k.Material)
 
 	return EvalBreakdown{
 		Material:      w.Material - k.Material,
 		PieceSquare:   w.PieceSquare - k.PieceSquare,
 		PawnStructure: w.PawnStructure - k.PawnStructure,
 		PassedPawns:   w.PassedPawns - k.PassedPawns,
-		Pieces:        w.Pieces - k.Pieces,
+		Pieces:        w.Pieces - k.Pieces + mopUp,
 		Mobility:      w.Mobility - k.Mobility,
 		Threats:       w.Threats - k.Threats,
 		KingSafety:    w.KingSafety - k.KingSafety,

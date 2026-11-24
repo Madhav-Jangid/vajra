@@ -100,6 +100,7 @@ func (r *running) halt() {
 // New returns an engine that reads commands from in and writes replies to out.
 func New(in io.Reader, out io.Writer) *Engine {
 	e := &Engine{in: in, out: out, overhead: defaultOverhead}
+	engine.PreserveTT = true
 
 	e.newGame()
 
@@ -252,12 +253,13 @@ func (e *Engine) startSearch(g GoArgs) {
 	r := &running{
 		done:     make(chan struct{}),
 		stop:     make(chan struct{}),
-		infinite: limit == 0 && g.Depth == 0,
+		infinite: limit == 0 && g.Depth == 0 && g.Nodes == 0,
 	}
 
 	e.search = r
 
 	engine.ClearStop()
+	engine.NodeLimit = g.Nodes
 
 	engine.GameHistory = append([]uint64(nil), e.history...)
 
@@ -291,13 +293,22 @@ func (e *Engine) reportInfo() func(engine.SearchInfo) {
 
 		ms := info.Elapsed.Milliseconds()
 
-		line := fmt.Sprintf("info depth %d score %s nodes %d", info.Depth, score, info.Nodes)
+		line := fmt.Sprintf("info depth %d score %s nodes %d hashfull %d", info.Depth, score, info.Nodes, info.HashFull)
 
 		if ms > 0 {
 			line += fmt.Sprintf(" nps %d", int64(info.Nodes)*1000/ms)
 		}
 
-		e.send("%s time %d pv %s", line, ms, FormatMove(info.Best))
+		pvText := FormatMove(info.Best)
+		if len(info.PV) > 0 {
+			parts := make([]string, len(info.PV))
+			for i, m := range info.PV {
+				parts[i] = FormatMove(m)
+			}
+			pvText = strings.Join(parts, " ")
+		}
+
+		e.send("%s time %d pv %s", line, ms, pvText)
 	}
 }
 

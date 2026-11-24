@@ -44,7 +44,7 @@ func ttOccupancy() float64 {
 	used := 0
 
 	for _, e := range TT.entries {
-		if e.Valid {
+		if e.Valid && e.Gen == TT.gen {
 			used++
 		}
 	}

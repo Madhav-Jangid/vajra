@@ -13,6 +13,7 @@ const (
 type TTEntry struct {
 	Key      uint64
 	Valid    bool
+	Gen      uint32
 	Depth    int
 	Score    int
 	Flag     TTFlag
@@ -21,6 +22,7 @@ type TTEntry struct {
 
 type TranspositionTable struct {
 	entries []TTEntry
+	gen     uint32
 }
 
 func NewTranspositionTable(sizeMB int) *TranspositionTable {
@@ -38,12 +40,20 @@ func NewTranspositionTable(sizeMB int) *TranspositionTable {
 
 	return &TranspositionTable{
 		entries: make([]TTEntry, count),
+		gen:     1,
 	}
 }
 
 func (tt *TranspositionTable) Clear() {
-	for i := range tt.entries {
-		tt.entries[i] = TTEntry{}
+	if tt == nil {
+		return
+	}
+	tt.gen++
+	if tt.gen == 0 {
+		tt.gen = 1
+		for i := range tt.entries {
+			tt.entries[i] = TTEntry{}
+		}
 	}
 }
 
@@ -58,7 +68,7 @@ func (tt *TranspositionTable) Probe(key uint64) (TTEntry, bool) {
 
 	entry := tt.entries[tt.index(key)]
 
-	if !entry.Valid || entry.Key != key {
+	if !entry.Valid || entry.Gen != tt.gen || entry.Key != key {
 		return TTEntry{}, false
 	}
 
@@ -79,16 +89,35 @@ func (tt *TranspositionTable) Store(
 	index := tt.index(key)
 	old := tt.entries[index]
 
-	if old.Valid && old.Key == key && old.Depth > depth {
+	if old.Valid && old.Gen == tt.gen && old.Key == key && old.Depth > depth {
 		return
 	}
 
 	tt.entries[index] = TTEntry{
 		Key:      key,
 		Valid:    true,
+		Gen:      tt.gen,
 		Depth:    depth,
 		Score:    score,
 		Flag:     flag,
 		BestMove: bestMove,
 	}
+}
+
+func (tt *TranspositionTable) HashFull() int {
+	if tt == nil || len(tt.entries) == 0 {
+		return 0
+	}
+	sample := len(tt.entries)
+	if sample > 1000 {
+		sample = 1000
+	}
+	used := 0
+	for i := 0; i < sample; i++ {
+		e := tt.entries[i]
+		if e.Valid && e.Gen == tt.gen {
+			used++
+		}
+	}
+	return (used * 1000) / sample
 }

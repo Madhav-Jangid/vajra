@@ -29,6 +29,13 @@ const (
 
 type Moves []Move
 
+var (
+	allDirs    = [8][2]int{{-1, 1}, {0, 1}, {1, 1}, {1, 0}, {1, -1}, {0, -1}, {-1, -1}, {-1, 0}}
+	rookDirs   = [4][2]int{{0, 1}, {1, 0}, {0, -1}, {-1, 0}}
+	bishopDirs = [4][2]int{{-1, 1}, {1, 1}, {1, -1}, {-1, -1}}
+	knightDirs = [8][2]int{{2, 1}, {2, -1}, {-2, 1}, {-2, -1}, {1, 2}, {1, -2}, {-1, 2}, {-1, -2}}
+)
+
 func (p *Position) GenerateMoves(square int) Moves {
 	if square < 0 || square >= 64 {
 		return nil
@@ -42,19 +49,19 @@ func (p *Position) GenerateMoves(square int) Moves {
 	case WhitePawn, BlackPawn:
 		return p.GetPawnsMoves(square, piece.Color)
 	case WhiteKnight, BlackKnight:
-		return p.stepMoves(square, piece, GetKnightsDirections())
+		return p.stepMovesArr(square, piece, knightDirs)
 	case WhiteQueen, BlackQueen:
-		return p.slideMoves(square, piece, GetAllDirections())
+		return p.slideMovesArr(square, piece, allDirs[:])
 	case WhiteBishop, BlackBishop:
-		return p.slideMoves(square, piece, GetBishopsDirections())
+		return p.slideMovesArr(square, piece, bishopDirs[:])
 	case WhiteRook, BlackRook:
-		return p.slideMoves(square, piece, GetRooksDirections())
+		return p.slideMovesArr(square, piece, rookDirs[:])
 	}
 	return nil
 }
 
-func (p *Position) stepMoves(square int, piece Piece, dirs Directions) Moves {
-	var moves Moves
+func (p *Position) stepMovesArr(square int, piece Piece, dirs [8][2]int) Moves {
+	moves := make(Moves, 0, 8)
 	rank, file := square/8, square%8
 	for _, d := range dirs {
 		r, f := rank+d[0], file+d[1]
@@ -73,8 +80,8 @@ func (p *Position) stepMoves(square int, piece Piece, dirs Directions) Moves {
 	return moves
 }
 
-func (p *Position) slideMoves(square int, piece Piece, dirs Directions) Moves {
-	var moves Moves
+func (p *Position) slideMovesArr(square int, piece Piece, dirs [][2]int) Moves {
+	moves := make(Moves, 0, 14)
 	rank, file := square/8, square%8
 	for _, d := range dirs {
 		r, f := rank+d[0], file+d[1]
@@ -110,7 +117,7 @@ func GetAllDirections() Directions {
 
 func (p *Position) GetKingsMoves(square int, color Color) Moves {
 	piece := p.Board.PieceAt(square)
-	moves := p.stepMoves(square, piece, GetAllDirections())
+	moves := p.stepMovesArr(square, piece, allDirs)
 
 	home, enemy := 4, Black
 	kingSide, queenSide := WhiteKingSide, WhiteQueenSide

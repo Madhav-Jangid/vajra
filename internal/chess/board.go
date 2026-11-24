@@ -164,56 +164,77 @@ func (b *PieceBoards) IsSquareOccupied(square int) bool {
 	return b.Occupied()&(Bitboard(1)<<square) != 0
 }
 
+var (
+	knightAttackBB [64]Bitboard
+	kingAttackBB   [64]Bitboard
+	pawnAttackBB   [2][64]Bitboard
+)
+
+func init() {
+	knightJumps := [8][2]int{{2, 1}, {2, -1}, {-2, 1}, {-2, -1}, {1, 2}, {1, -2}, {-1, 2}, {-1, -2}}
+	kingSteps := [8][2]int{{-1, 1}, {0, 1}, {1, 1}, {1, 0}, {1, -1}, {0, -1}, {-1, -1}, {-1, 0}}
+
+	for sq := 0; sq < 64; sq++ {
+		r, f := sq/8, sq%8
+		for _, d := range knightJumps {
+			nr, nf := r+d[0], f+d[1]
+			if nr >= 0 && nr < 8 && nf >= 0 && nf < 8 {
+				knightAttackBB[sq] |= Bitboard(1) << uint(nr*8+nf)
+			}
+		}
+		for _, d := range kingSteps {
+			nr, nf := r+d[0], f+d[1]
+			if nr >= 0 && nr < 8 && nf >= 0 && nf < 8 {
+				kingAttackBB[sq] |= Bitboard(1) << uint(nr*8+nf)
+			}
+		}
+		for _, df := range [2]int{-1, 1} {
+			nf := f + df
+			if nf < 0 || nf >= 8 {
+				continue
+			}
+			if r > 0 {
+				pawnAttackBB[White][sq] |= Bitboard(1) << uint((r-1)*8+nf)
+			}
+			if r < 7 {
+				pawnAttackBB[Black][sq] |= Bitboard(1) << uint((r+1)*8+nf)
+			}
+		}
+	}
+}
+
 func (b *PieceBoards) IsSquareAttacked(square int, by Color) bool {
 	if square < 0 || square >= 64 {
 		return false
 	}
-	rank := square / 8
-	file := square % 8
 
-	at := func(r, f int) (Piece, bool) {
-		if r < 0 || r >= 8 || f < 0 || f >= 8 {
-			return Piece{}, false
-		}
-		p := b.PieceAt(r*8 + f)
-		if p.Type == Empty || p.Color != by {
-			return Piece{}, false
-		}
-		return p, true
-	}
-
-	pawn, knight, king := BlackPawn, BlackKnight, BlackKing
-	rook, bishop, queen := BlackRook, BlackBishop, BlackQueen
-	pawnRank := rank + 1
+	var pawns, knights, bishops, rooks, queens, king Bitboard
 	if by == White {
-		pawn, knight, king = WhitePawn, WhiteKnight, WhiteKing
-		rook, bishop, queen = WhiteRook, WhiteBishop, WhiteQueen
-		pawnRank = rank - 1
+		pawns, knights, bishops, rooks, queens, king = b.WhitePawns, b.WhiteKnights, b.WhiteBishops, b.WhiteRooks, b.WhiteQueens, b.WhiteKing
+	} else {
+		pawns, knights, bishops, rooks, queens, king = b.BlackPawns, b.BlackKnights, b.BlackBishops, b.BlackRooks, b.BlackQueens, b.BlackKing
 	}
 
-	for _, df := range []int{-1, 1} {
-		if p, ok := at(pawnRank, file+df); ok && p.Type == pawn {
-			return true
-		}
+	if pawnAttackBB[by][square]&pawns != 0 {
+		return true
 	}
-	for _, d := range GetKnightsDirections() {
-		if p, ok := at(rank+d[0], file+d[1]); ok && p.Type == knight {
-			return true
-		}
+	if knightAttackBB[square]&knights != 0 {
+		return true
 	}
-	for _, d := range GetAllDirections() {
-		if p, ok := at(rank+d[0], file+d[1]); ok && p.Type == king {
-			return true
-		}
+	if kingAttackBB[square]&king != 0 {
+		return true
 	}
 
-	ray := func(dirs Directions, slider PieceType) bool {
-		for _, d := range dirs {
+	occ := b.Occupied()
+	rank, file := square/8, square%8
+
+	if rq := rooks | queens; rq != 0 {
+		for _, d := range rookDirs {
 			r, f := rank+d[0], file+d[1]
 			for r >= 0 && r < 8 && f >= 0 && f < 8 {
-				p := b.PieceAt(r*8 + f)
-				if p.Type != Empty {
-					if p.Color == by && (p.Type == slider || p.Type == queen) {
+				bit := Bitboard(1) << uint(r*8+f)
+				if occ&bit != 0 {
+					if rq&bit != 0 {
 						return true
 					}
 					break
@@ -222,9 +243,26 @@ func (b *PieceBoards) IsSquareAttacked(square int, by Color) bool {
 				f += d[1]
 			}
 		}
-		return false
 	}
-	return ray(GetRooksDirections(), rook) || ray(GetBishopsDirections(), bishop)
+
+	if bq := bishops | queens; bq != 0 {
+		for _, d := range bishopDirs {
+			r, f := rank+d[0], file+d[1]
+			for r >= 0 && r < 8 && f >= 0 && f < 8 {
+				bit := Bitboard(1) << uint(r*8+f)
+				if occ&bit != 0 {
+					if bq&bit != 0 {
+						return true
+					}
+					break
+				}
+				r += d[0]
+				f += d[1]
+			}
+		}
+	}
+
+	return false
 }
 
 func (b *PieceBoards) ApplyMove(move Move) {

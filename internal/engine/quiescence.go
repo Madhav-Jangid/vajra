@@ -49,6 +49,15 @@ func quiescence(
 			continue
 		}
 
+		if UseLMR && move.Flags&chess.Promotion == 0 {
+			if standPat+pieceValue(move.Captured)+200 < alpha {
+				continue
+			}
+			if see(p, move) < 0 {
+				continue
+			}
+		}
+
 		if expired(deadline) {
 			return 0, false
 		}

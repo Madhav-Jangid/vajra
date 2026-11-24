@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"math/bits"
 	"math/rand"
 
 	"vajra/internal/chess"
@@ -40,16 +41,27 @@ func init() {
 
 func HashPosition(p *chess.Position) uint64 {
 	var hash uint64
+	b := &p.Board
 
-	for sq := 0; sq < 64; sq++ {
-		piece := p.Board.PieceAt(sq)
-
-		if piece.Type == chess.Empty {
-			continue
+	hashPieces := func(bb chess.Bitboard, pt chess.PieceType) {
+		table := &zobristPiece[int(pt)]
+		for x := uint64(bb); x != 0; x &= x - 1 {
+			hash ^= table[bits.TrailingZeros64(x)]
 		}
-
-		hash ^= zobristPiece[int(piece.Type)][sq]
 	}
+
+	hashPieces(b.WhiteKing, chess.WhiteKing)
+	hashPieces(b.BlackKing, chess.BlackKing)
+	hashPieces(b.WhiteQueens, chess.WhiteQueen)
+	hashPieces(b.BlackQueens, chess.BlackQueen)
+	hashPieces(b.WhiteRooks, chess.WhiteRook)
+	hashPieces(b.BlackRooks, chess.BlackRook)
+	hashPieces(b.WhiteKnights, chess.WhiteKnight)
+	hashPieces(b.BlackKnights, chess.BlackKnight)
+	hashPieces(b.WhiteBishops, chess.WhiteBishop)
+	hashPieces(b.BlackBishops, chess.BlackBishop)
+	hashPieces(b.WhitePawns, chess.WhitePawn)
+	hashPieces(b.BlackPawns, chess.BlackPawn)
 
 	if p.SideToMove == chess.Black {
 		hash ^= zobristSide

@@ -168,8 +168,9 @@ func TestPVMatchesBestMove(t *testing.T) {
 	}
 
 	pv := info[0][strings.Index(info[0], " pv ")+4:]
+	fields := strings.Fields(pv)
 
-	if pv != bestMove(t, lines) {
+	if len(fields) == 0 || fields[0] != bestMove(t, lines) {
 		t.Fatalf("pv %q differs from the bestmove %q", pv, bestMove(t, lines))
 	}
 }

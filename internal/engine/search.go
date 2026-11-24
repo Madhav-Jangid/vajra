@@ -14,7 +14,11 @@ const (
 
 var Nodes uint64
 
+var NodeLimit uint64
+
 var UseMoveOrdering = true
+
+var PreserveTT = false
 
 var TT = NewTranspositionTable(64)
 
@@ -34,17 +38,7 @@ type KillerTable struct {
 }
 
 func allMoves(p *chess.Position) []chess.Move {
-	moves := make([]chess.Move, 0, 48)
-
-	for sq := 0; sq < 64; sq++ {
-		piece := p.Board.PieceAt(sq)
-
-		if piece.Type != chess.Empty && piece.Color == p.SideToMove {
-			moves = append(moves, p.LegalMoves(sq)...)
-		}
-	}
-
-	return moves
+	return p.AllLegalMoves()
 }
 
 func evalSide(p *chess.Position) int {
@@ -59,6 +53,10 @@ func evalSide(p *chess.Position) int {
 
 func expired(deadline time.Time) bool {
 	if stopRequested.Load() {
+		return true
+	}
+
+	if NodeLimit > 0 && Nodes >= NodeLimit {
 		return true
 	}
 
@@ -104,7 +102,9 @@ func transpositionKey(p *chess.Position) uint64 {
 
 func startSearch(timeLimit time.Duration) time.Time {
 	Nodes = 0
-	TT.Clear()
+	if !PreserveTT {
+		TT.Clear()
+	}
 	history = append(history[:0], GameHistory...)
 
 	if timeLimit > 0 {
@@ -134,6 +134,18 @@ func searchRootScored(
 	prevBest chess.Move,
 	state *SearchState,
 ) (move chess.Move, found bool, completed bool, score int) {
+	return searchRootWindow(p, depth, -Infinity, Infinity, deadline, prevBest, state)
+}
+
+func searchRootWindow(
+	p *chess.Position,
+	depth int,
+	alpha int,
+	beta int,
+	deadline time.Time,
+	prevBest chess.Move,
+	state *SearchState,
+) (move chess.Move, found bool, completed bool, score int) {
 
 	moves := allMoves(p)
 
@@ -152,14 +164,12 @@ func searchRootScored(
 	history = append(history, hash)
 	defer func() { history = history[:len(history)-1] }()
 
-	alpha := -Infinity
-
 	for i, m := range moves {
 		if expired(deadline) {
 			return move, found, false, alpha
 		}
 
-		child, ok := searchMove(p, m, depth-1, 1, alpha, Infinity, i, deadline, state)
+		child, ok := searchMove(p, m, depth-1, 1, alpha, beta, i, deadline, state)
 
 		if !ok {
 			return move, found, false, alpha
@@ -169,12 +179,64 @@ func searchRootScored(
 			alpha = child
 			move = m
 			found = true
+			if alpha >= beta {
+				return move, found, true, alpha
+			}
 		}
 	}
 
 	TT.Store(transpositionKey(p), depth, scoreToTT(alpha, 0), TTExact, move)
 
 	return move, found, true, alpha
+}
+
+func searchRootAspiration(
+	p *chess.Position,
+	depth int,
+	prevScore int,
+	havePrev bool,
+	deadline time.Time,
+	prevBest chess.Move,
+	state *SearchState,
+) (move chess.Move, found bool, completed bool, score int) {
+	if depth < 4 || !havePrev || absInt(prevScore) >= MateScore-1000 {
+		return searchRootScored(p, depth, deadline, prevBest, state)
+	}
+
+	delta := 50
+	alpha := max(prevScore-delta, -Infinity)
+	beta := min(prevScore+delta, Infinity)
+
+	for {
+		move, f, ok, s := searchRootWindow(p, depth, alpha, beta, deadline, prevBest, state)
+		if !ok {
+			if f {
+				return move, true, false, s
+			}
+			return prevBest, false, false, s
+		}
+
+		if s <= alpha && alpha > -Infinity {
+			alpha = max(s-delta, -Infinity)
+			delta *= 2
+			if delta > 1000 {
+				alpha = -Infinity
+			}
+			continue
+		}
+		if s >= beta && beta < Infinity {
+			beta = min(s+delta, Infinity)
+			delta *= 2
+			if delta > 1000 {
+				beta = Infinity
+			}
+			if f {
+				prevBest = move
+			}
+			continue
+		}
+		return move, f, true, s
+	}
 }
 
 func Search(
@@ -199,6 +261,19 @@ func negamax(
 	beta int,
 	deadline time.Time,
 	state *SearchState,
+) (int, bool) {
+	return negamaxSearch(p, depth, ply, alpha, beta, deadline, state, true)
+}
+
+func negamaxSearch(
+	p *chess.Position,
+	depth int,
+	ply int,
+	alpha int,
+	beta int,
+	deadline time.Time,
+	state *SearchState,
+	allowNull bool,
 ) (int, bool) {
 
 	Nodes++
@@ -254,6 +329,44 @@ func negamax(
 			return -MateScore + ply, true
 		}
 		return 0, true
+	}
+
+	inCheck := p.InCheck(p.SideToMove)
+
+	if UseLMR && !inCheck && depth <= 3 && absInt(beta) < MateScore-1000 && nonPawnPieceCount(p, p.SideToMove) > 0 {
+		staticEval := evalSide(p)
+		if staticEval-120*depth >= beta {
+			return staticEval - 120*depth, true
+		}
+	}
+
+	if UseLMR && allowNull && depth >= 3 && !inCheck &&
+		nonPawnPieceCount(p, p.SideToMove) >= 2 && beta < MateScore-1000 && alpha > -MateScore+1000 &&
+		evalSide(p) >= beta {
+		r := 2
+		if depth >= 6 {
+			r = 3
+		}
+		savedEP := p.EnPassant
+		p.EnPassant = -1
+		if p.SideToMove == chess.White {
+			p.SideToMove = chess.Black
+		} else {
+			p.SideToMove = chess.White
+		}
+		nullScore, ok := negamaxSearch(p, depth-1-r, ply+1, -beta, -beta+1, deadline, state, false)
+		if p.SideToMove == chess.White {
+			p.SideToMove = chess.Black
+		} else {
+			p.SideToMove = chess.White
+		}
+		p.EnPassant = savedEP
+		if !ok {
+			return 0, false
+		}
+		if -nullScore >= beta {
+			return beta, true
+		}
 	}
 
 	if UseMoveOrdering {
@@ -314,18 +427,28 @@ func IterativeSearch(
 	maxDepth int,
 	timeLimit time.Duration,
 ) (chess.Move, bool) {
+	defer func() { NodeLimit = 0 }()
 
+	start := time.Now()
 	deadline := startSearch(timeLimit)
 
 	var best chess.Move
 	found := false
+	prevScore := 0
 	state := &SearchState{}
 
 	for depth := 1; depth <= maxDepth; depth++ {
-		move, ok, completed := searchRoot(p, depth, deadline, best, state)
+		if timeLimit > 0 && found && depth >= 2 && time.Since(start) >= (timeLimit*2)/3 {
+			break
+		}
+
+		move, ok, completed, score := searchRootAspiration(p, depth, prevScore, found, deadline, best, state)
 
 		if ok {
 			best, found = move, true
+			if completed {
+				prevScore = score
+			}
 		}
 
 		if !completed {
