@@ -301,7 +301,7 @@ func TestSearchStatsReport(t *testing.T) {
 
 		// A table can cost a few percent (different bounds, different best moves),
 		// but it must never make the search much worse.
-		if s.nodes > noTT.nodes+noTT.nodes/2 {
+		if s.nodes > noTT.nodes+noTT.nodes/10 {
 			t.Fatalf("%s: a real table searched %d nodes, a one-slot table only %d", tc.name, s.nodes, noTT.nodes)
 		}
 

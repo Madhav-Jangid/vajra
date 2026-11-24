@@ -257,7 +257,6 @@ func evalColor(
 
 	ownOcc := uint64(pawns | knights | bishops | rooks | queens | king)
 	e.Mobility, e.Threats = mobilityScore(knights, bishops, rooks, queens, ownOcc, occ, enemyPawnAttacks, uint64(enemyPawns), phase)
-
 	forEachSquare(king, func(ksq int) {
 		kr := relRank(ksq, color)
 

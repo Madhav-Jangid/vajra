@@ -295,6 +295,10 @@ func TestNegamaxMatchesBruteForceAtMultipleDepths(t *testing.T) {
 					got,
 					ok,
 				)
+
+				if !ok || got != want {
+					t.Fatalf("depth=%d: negamax=%d ok=%v, want %d", depth, got, ok, want)
+				}
 			}
 		})
 	}
@@ -899,15 +903,15 @@ func TestNegamaxDraws(t *testing.T) {
 		}
 	})
 
-	t.Run("insufficient material check is skipped when clock is not zero", func(t *testing.T) {
+	t.Run("insufficient material is a draw regardless of clock", func(t *testing.T) {
 		reset(t)
 		p := fromRows(chess.White, knightDownRows)
 		p.HalfmoveClock = 5
 
 		score, _ := negamax(p, 0, 0, -Infinity, Infinity, time.Time{}, &SearchState{})
 
-		if score == 0 {
-			t.Fatal("expected non-zero evaluation when gate is closed")
+		if score != 0 {
+			t.Fatalf("expected draw score at any halfmove clock, got %d", score)
 		}
 	})
 
@@ -2036,12 +2040,15 @@ func TestKillerOrderingRanksBetweenCapturesAndQuiet(t *testing.T) {
 
 	quiet := chess.Move{From: 8, To: 16, Piece: chess.WhitePawn}
 	killer := chess.Move{From: 9, To: 17, Piece: chess.WhitePawn}
+	lowCapture := chess.Move{From: 3, To: 51, Piece: chess.WhiteQueen, Captured: chess.BlackPawn, Flags: chess.Capture}
+	promo := chess.Move{From: 48, To: 56, Piece: chess.WhitePawn, Promotion: chess.WhiteKnight, Flags: chess.Promotion}
 	capture := chess.Move{From: 10, To: 35, Piece: chess.WhitePawn, Captured: chess.BlackQueen, Flags: chess.Capture}
 
 	state.killers.store(2, killer)
-	state.history.update(chess.White, quiet, 10) // history favours the plain quiet move
+	// Saturate history on the quiet move to ensure maxHistory never outranks captures/promotions or killers.
+	state.history.update(chess.White, quiet, 100)
 
-	moves := []chess.Move{quiet, killer, capture}
+	moves := []chess.Move{quiet, killer, promo, lowCapture, capture}
 
 	oldK, oldH := UseKillers, UseHistory
 	UseKillers, UseHistory = true, true
@@ -2050,8 +2057,12 @@ func TestKillerOrderingRanksBetweenCapturesAndQuiet(t *testing.T) {
 
 	orderMovesHeuristic(moves, chess.White, 2, state)
 
-	if !sameMove(moves[0], capture) || !sameMove(moves[1], killer) || !sameMove(moves[2], quiet) {
-		t.Fatalf("want capture, killer, quiet; got %+v", moves)
+	if !sameMove(moves[0], capture) ||
+		!sameMove(moves[1], promo) ||
+		!sameMove(moves[2], lowCapture) ||
+		!sameMove(moves[3], killer) ||
+		!sameMove(moves[4], quiet) {
+		t.Fatalf("want capture, promo, lowCapture, killer, quiet; got %+v", moves)
 	}
 
 	// Different ply: killer no longer applies.

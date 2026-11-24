@@ -61,7 +61,6 @@ func bruteQ(p *chess.Position, ply int) int {
 		return 0
 	}
 
-	// Stand-pat score.
 	best := evalSide(p)
 
 	// Only tactical moves belong in q-search.
@@ -184,14 +183,14 @@ func bruteQMemo(
 }
 
 func TestQuiescenceStandPat(t *testing.T) {
+	reset(t)
+
 	p, err := chess.ParseFEN(
 		"8/8/8/8/8/8/4K3/7k w - - 0 1",
 	)
 	if err != nil {
 		t.Fatal(err)
 	}
-
-	Nodes = 0
 
 	score, completed := quiescence(
 		&p,
@@ -205,7 +204,9 @@ func TestQuiescenceStandPat(t *testing.T) {
 		t.Fatal("quiescence did not complete")
 	}
 
-	_ = score
+	if want := evalSide(&p); score != want {
+		t.Fatalf("got score %d, want stand-pat %d", score, want)
+	}
 }
 
 func TestQuiescenceFindsWinningCapture(t *testing.T) {

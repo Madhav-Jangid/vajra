@@ -95,18 +95,19 @@ func threatPenalty(value, safeSquares int) int {
 
 func mobilityScore(
 	knights, bishops, rooks, queens chess.Bitboard,
-	ownOcc, occ, enemyPawn, enemyPawnOcc uint64,
+	ownOcc, occ, enemyPawnAtk, enemyPawnOcc uint64,
 	phase int,
 ) (mobility, threats int) {
 
-	allowed := ^(ownOcc | enemyPawn)
+	allowed := ^ownOcc
+	safe := allowed &^ enemyPawnAtk
 
 	visit := func(sq int, attacks uint64, term mobilityTerm, value int) {
-		n := bits.OnesCount64(attacks & allowed)
+		n := bits.OnesCount64(attacks & safe)
 		mobility += term.score(n, phase)
 
-		if enemyPawn&(uint64(1)<<uint(sq)) != 0 {
-			escapes := bits.OnesCount64(attacks & allowed &^ enemyPawnOcc)
+		if enemyPawnAtk&(uint64(1)<<uint(sq)) != 0 {
+			escapes := bits.OnesCount64(attacks & safe &^ enemyPawnOcc)
 			threats -= threatPenalty(value, escapes)
 		}
 	}

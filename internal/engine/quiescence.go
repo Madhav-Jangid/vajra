@@ -39,6 +39,7 @@ func quiescence(
 	if standPat > alpha {
 		alpha = standPat
 	}
+
 	if UseMoveOrdering {
 		orderMoves(moves)
 	}
@@ -81,7 +82,6 @@ func quiescence(
 
 	return alpha, true
 }
-
 func isQuiescenceMove(move chess.Move) bool {
 	if move.Flags&chess.Capture != 0 {
 		return true

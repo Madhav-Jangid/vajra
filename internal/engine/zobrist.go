@@ -64,6 +64,5 @@ func HashPosition(p *chess.Position) uint64 {
 	}
 
 	hash ^= zobristEP[ep]
-
 	return hash
 }

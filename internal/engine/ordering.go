@@ -39,7 +39,10 @@ func orderMoves(moves []chess.Move) {
 
 var UseKillers = true
 
-const killerBonus = 2000
+const (
+	killerBonus   = 2000
+	captureOffset = 10000
+)
 
 func (k *KillerTable) isKiller(ply int, m chess.Move) int {
 	if ply < 0 || ply >= MaxPly {
@@ -81,7 +84,7 @@ func orderMovesHeuristic(
 
 	score := func(m chess.Move) int {
 		if !isQuiet(m) {
-			return moveScore(m)
+			return captureOffset + moveScore(m)
 		}
 
 		s := 0

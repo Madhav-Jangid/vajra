@@ -34,7 +34,7 @@ type KillerTable struct {
 }
 
 func allMoves(p *chess.Position) []chess.Move {
-	var moves []chess.Move
+	moves := make([]chess.Move, 0, 48)
 
 	for sq := 0; sq < 64; sq++ {
 		piece := p.Board.PieceAt(sq)
@@ -87,6 +87,19 @@ func insufficientMaterial(p *chess.Position) bool {
 	minors := b.WhiteKnights | b.BlackKnights | b.WhiteBishops | b.BlackBishops
 
 	return bits.OnesCount64(uint64(minors)) <= 1
+}
+
+func transpositionKey(p *chess.Position) uint64 {
+	hash := HashPosition(p)
+	if p.HalfmoveClock <= 0 {
+		return hash
+	}
+
+	x := uint64(p.HalfmoveClock) + 0x9e3779b97f4a7c15
+	x = (x ^ (x >> 30)) * 0xbf58476d1ce4e5b9
+	x = (x ^ (x >> 27)) * 0x94d049bb133111eb
+	x ^= x >> 31
+	return hash ^ x
 }
 
 func startSearch(timeLimit time.Duration) time.Time {
@@ -159,7 +172,7 @@ func searchRootScored(
 		}
 	}
 
-	TT.Store(hash, depth, scoreToTT(alpha, 0), TTExact, move)
+	TT.Store(transpositionKey(p), depth, scoreToTT(alpha, 0), TTExact, move)
 
 	return move, found, true, alpha
 }
@@ -196,11 +209,14 @@ func negamax(
 
 	hash := HashPosition(p)
 
-	if p.HalfmoveClock >= 100 || isRepetition(hash, p.HalfmoveClock) {
+	if p.HalfmoveClock >= 100 {
+		if len(allMoves(p)) == 0 && p.InCheck(p.SideToMove) {
+			return -MateScore + ply, true
+		}
 		return 0, true
 	}
 
-	if p.HalfmoveClock == 0 && insufficientMaterial(p) {
+	if isRepetition(hash, p.HalfmoveClock) || insufficientMaterial(p) {
 		return 0, true
 	}
 
@@ -209,7 +225,7 @@ func negamax(
 
 	originalAlpha := alpha
 
-	entry, hit := TT.Probe(hash)
+	entry, hit := TT.Probe(transpositionKey(p))
 
 	if hit && entry.Depth >= depth {
 		score := scoreFromTT(entry.Score, ply)
@@ -228,18 +244,16 @@ func negamax(
 		}
 	}
 
-	moves := allMoves(p)
+	if depth <= 0 {
+		return quiescence(p, ply, alpha, beta, deadline)
+	}
 
+	moves := allMoves(p)
 	if len(moves) == 0 {
 		if p.InCheck(p.SideToMove) {
 			return -MateScore + ply, true
 		}
-
 		return 0, true
-	}
-
-	if depth <= 0 {
-		return quiescence(p, ply, alpha, beta, deadline)
 	}
 
 	if UseMoveOrdering {
@@ -290,7 +304,7 @@ func negamax(
 		flag = TTLowerBound
 	}
 
-	TT.Store(hash, depth, scoreToTT(bestScore, ply), flag, bestMove)
+	TT.Store(transpositionKey(p), depth, scoreToTT(bestScore, ply), flag, bestMove)
 
 	return bestScore, true
 }
