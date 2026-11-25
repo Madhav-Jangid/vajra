@@ -118,3 +118,4 @@ jobs:
           flags=""
           if [[ "$TAG" == *-* ]]; then flags="--prerelease"; fi
           gh release create "$TAG" dist/* --verify-tag --generate-notes --title "Vajra $TAG" $flags
+
