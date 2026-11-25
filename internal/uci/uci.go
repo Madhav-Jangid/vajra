@@ -28,6 +28,8 @@ const (
 	movesToPlan = 30
 )
 
+var Version = "dev"
+
 func Budget(g GoArgs, side chess.Color, overhead time.Duration) (limit time.Duration, depth int) {
 	depth = MaxSearchDepth
 
@@ -156,7 +158,7 @@ func (e *Engine) Run() error {
 func (e *Engine) handle(cmd Command) (quit bool) {
 	switch cmd.Kind {
 	case UCI:
-		e.send("id name %s", Name)
+		e.send("id name %s %s", Name, Version)
 		e.send("id author %s", Author)
 		e.send("option name Hash type spin default %d min 1 max %d", defaultHashMB, maxHashMB)
 		e.send("option name Threads type spin default 1 min 1 max %d", maxThreads)

@@ -1,0 +1,120 @@
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: verify (${{ matrix.os }})
+    strategy:
+      fail-fast: true
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: tag is a version
+        shell: bash
+        run: |
+          if ! [[ "${{ github.ref_name }}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$ ]]; then
+            echo "tag ${{ github.ref_name }} is not a version like v1.2.3 or v1.2.3-rc.1"
+            exit 1
+          fi
+      - run: go vet ./cmd/... ./internal/...
+      - run: go build ./cmd/... ./internal/...
+      - name: full test suite, including every engine and perft test
+        run: go test -count=1 -timeout 30m ./cmd/... ./internal/...
+
+  verify-race:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - run: go test -race -count=1 -timeout 45m ./internal/chess ./internal/engine ./internal/uci ./internal/book
+
+  verify-strength:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - run: go run ./cmd/match -openings 12 -depth-a 4 -depth-b 3 -max-plies 160 -min-score 0.6
+
+  build:
+    needs: [verify, verify-race, verify-strength]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: build
+        env:
+          CGO_ENABLED: "0"
+          VERSION: ${{ github.ref_name }}
+        run: |
+          mkdir dist
+          for target in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64; do
+            os=${target%/*}
+            arch=${target#*/}
+            name=vajra-${VERSION}-${os}-${arch}
+            ext=""
+            if [ "$os" = windows ]; then ext=".exe"; fi
+            mkdir -p "dist/${name}"
+            GOOS=$os GOARCH=$arch go build -trimpath -ldflags "-s -w -X vajra/internal/uci.Version=${VERSION}" -o "dist/${name}/vajra${ext}" ./cmd/uci
+            GOOS=$os GOARCH=$arch go build -trimpath -ldflags "-s -w" -o "dist/${name}/vajra-server${ext}" ./cmd/server
+            cp README.md LICENSE "dist/${name}/"
+            cp -r docs "dist/${name}/docs"
+            if [ "$os" = windows ]; then
+              (cd dist && zip -qr "${name}.zip" "${name}")
+            else
+              tar -C dist -czf "dist/${name}.tar.gz" "${name}"
+            fi
+            rm -r "dist/${name}"
+          done
+          (cd dist && sha256sum * > checksums.txt)
+      - name: smoke test the linux binary
+        env:
+          VERSION: ${{ github.ref_name }}
+        run: |
+          tar -xzf "dist/vajra-${VERSION}-linux-amd64.tar.gz" -C /tmp
+          bin="/tmp/vajra-${VERSION}-linux-amd64/vajra"
+          test "$("$bin" version)" = "Vajra ${VERSION}"
+          printf 'uci\nisready\nquit\n' | "$bin" | grep -q '^uciok$'
+          "$bin" bench 6 | tee /tmp/bench.txt
+          grep -q '^nodes searched' /tmp/bench.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/*
+          if-no-files-found: error
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist
+      - name: publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          flags=""
+          if [[ "$TAG" == *-* ]]; then flags="--prerelease"; fi
+          gh release create "$TAG" dist/* --verify-tag --generate-notes --title "Vajra $TAG" $flags

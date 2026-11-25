@@ -1,28 +1,78 @@
 # Vajra
 
-Vajra is a chess engine and browser chess application written in Go and Next.js. The current app lets a person play White against Vajra as Black through a local WebSocket server.
+Vajra is a UCI chess engine written in Go. It is a single static binary of about 2 MB with no dependencies, it plays in any UCI chess GUI, and the whole engine is small enough to read in an afternoon.
 
-## What is implemented and where
+It also comes with a browser game, so you can play against it without installing a GUI.
 
-| Area | What is present | Main files |
-| --- | --- | --- |
-| Chess board and position | Per-piece bitboards, `a1 = 0` square indexing, position state, FEN parsing/serialization, starting position | `internal/chess/board.go`, `internal/chess/position.go`, `internal/chess/fen.go` |
-| Chess rules | Pseudo-legal move generation and legal move filtering; attacks/check; castling, en passant, promotions; make/unmake; checkmate, stalemate, insufficient material, fifty-move draw | `internal/chess/movegen.go`, `internal/chess/rules.go`, `internal/chess/makemove.go` |
-| Engine | Material and piece-square evaluation; negamax alpha-beta search; iterative deepening and deadline handling; capture/promotion quiescence; capture ordering; deterministic Zobrist position hashes and a transposition table | `internal/engine/evaluate.go`, `internal/engine/search.go`, `internal/engine/quiescence.go`, `internal/engine/ordering.go`, `internal/engine/zobrist.go`, `internal/engine/transposition.go` |
-| Game entry points | Interactive terminal game with coordinate moves, promotion choice, legal-move listing, reset, and result detection; HTTP server with a JSON WebSocket protocol and engine replies | `cmd/chess/main.go`, `cmd/server/main.go`, `internal/config.go` |
-| Browser UI | Next.js chessboard, legal destination hints, check and last-move highlighting, sounds, checkmate celebration, reconnection, and New game button | `web/app/page.tsx`, `web/app/Board.tsx`, `web/app/globals.css`, `web/app/layout.tsx` |
-| UI assets | Piece images and move, capture, castle, promotion, check, and game-end sounds | `web/public/icons/`, `web/public/sounds/` |
-| Helpers and correctness tests | Board/move formatting helpers; chess perft and FEN tests; engine white-box unit tests and public API tests | `internal/utils/helpers.go`, `internal/chess/perft_test.go`, `internal/engine/*_test.go`, `internal/engine/test/public_api_test.go` |
+- **Fast.** About 450,000 nodes per second on one thread and 3.8 million with 8 threads, measured on an Intel Core i7-12700. Move generation runs perft at 6 to 8 million nodes per second.
+- **Correct.** Perft counts match the published values for the standard positions, and the test suite has 305 tests and 687 subtests.
+- **Reproducible.** `vajra bench` prints a deterministic node count, so any change to how the engine searches shows up as a different number.
+- **Readable.** Standard library only. The packages are small and each one does a single job.
 
-## Run locally
+## Features
 
-Run the backend from the repository root:
+**Search**
+- Negamax alpha-beta with iterative deepening and aspiration windows
+- Principal variation search, late move reductions, null-move pruning, reverse futility pruning
+- Quiescence search with static exchange evaluation
+- Transposition table, killer moves, history heuristic
+- Multi-threaded search (Lazy SMP)
+- Draw detection by repetition, the fifty-move rule and insufficient material
+
+**Evaluation**
+- Material and piece-square tables, with a tapered middlegame and endgame blend
+- Pawn structure, passed pawns, bishop pair, rooks on open files
+- Piece mobility, king safety, threats against pieces
+- Exact king and pawn against king endgames from a built-in bitbase
+- Mop-up evaluation for won endgames
+
+**Engine**
+- Browser game with drag and drop, premoves, a promotion picker, an evaluation bar and a move list
+- UCI protocol with `Hash`, `Threads`, `Move Overhead`, `OwnBook` and `BookFile` options
+- Opening book from a plain text file of game lines
+- Principal variation and hash usage in every `info` line
+- `vajra bench` and `vajra version`
+
+## Quick start
+
+### Download
+
+Take the archive for your system from the [releases page](../../releases). It holds the `vajra` engine, the `vajra-server` game server, the license and the documentation. Verify it against `checksums.txt` if you like.
+
+### Build from source
+
+You need Go (the version in `go.mod`).
+
+```sh
+git clone <repository-url>
+cd vajra
+go build -o vajra ./cmd/uci
+```
+
+### Play it in a chess GUI
+
+Add the `vajra` executable to your GUI as a UCI engine. No other files are needed.
+
+You can also talk to it directly:
+
+```
+$ ./vajra
+uci
+...
+uciok
+position startpos moves e2e4 e7e5
+go movetime 1000
+info depth 12 score cp 34 nodes 412035 hashfull 18 nps 612000 time 673 pv g1f3 b8c6 f1b5 ...
+bestmove g1f3
+```
+
+### Play it in the browser
 
 ```sh
 go run ./cmd/server
 ```
 
-In another terminal, run the browser app:
+and in a second terminal
 
 ```sh
 cd web
@@ -30,116 +80,85 @@ npm install
 npm run dev
 ```
 
-Open the local Next.js URL printed by the dev server. The browser connects to `ws://localhost:8080/ws`. The terminal game can be started separately with `go run ./cmd/chess`.
+Then open the address `npm run dev` prints. See [web UI and server](docs/web.md).
 
-## Milestones
+## Benchmarks
 
-Checked milestones have implementation in the repository and are covered by the listed code and tests. Verification command: `go test ./...`. The checklist reflects implementation and automated test coverage; it does not imply third-party GUI integration, profiling, or strength-rating claims unless specifically stated.
+Measured on an Intel Core i7-12700 with 16 GB of memory. Full tables, the method and the commands to reproduce them are in [docs/benchmarks.md](docs/benchmarks.md).
 
-### Phase 1: Chess fundamentals
+| | Result |
+| --- | --- |
+| Bench, depth 10, 12 positions, 1 thread | 6,186,314 nodes in 13.9 s, 445,604 nodes per second |
+| Perft (start position, Kiwipete, position 3) | 6.1, 7.8 and 6.2 million nodes per second |
+| Search speed with 1, 2, 4 and 8 threads | 0.54, 1.04, 2.06 and 3.79 million nodes per second |
+| Self-play, each extra ply of depth | +137 to +280 Elo over four matches of 24 games |
+| Binary size | 2.0 MB |
 
-- [x] **1.** Board representation and initialization
-- [x] **2.** Piece representation and square indexing
-- [x] **3.** FEN parsing and position serialization
-- [x] **4.** Move representation and encoding
+### How strong is it?
 
-### Phase 2: Move generation
+Not yet measured against other engines, so there is no rating to quote. Self-play shows that each extra ply of search is worth roughly 150 to 250 Elo at the depths tested, with wide error margins because each match was only 24 games. Self-play gains overstate gains against other engines. If you play Vajra in a gauntlet against other engines, please share the result.
 
-- [x] **5.** Generate pseudo-legal moves
-- [x] **6.** Pawn movement, captures, and promotions
-- [x] **7.** Knight and king movement
-- [x] **8.** Bishop, rook, and queen movement
-- [x] **9.** Castling and en passant
-- [x] **10.** Legal move validation and king safety
-- [x] **11.** Make and unmake moves
-- [x] **12.** Check, checkmate, stalemate, and draw detection (threefold repetition is tracked in the CLI and server)
-
-### Phase 3: Testing and correctness
-
-- [x] **13.** Chess rule and engine unit tests are present
-- [x] **14.** Perft tests are present
-- [x] **15.** Known perft positions and counts are included in tests
-- [x] **16.** Special-move and edge-case test coverage is present
-
-### Phase 4: Basic chess intelligence
-
-- [x] **17.** Material-based evaluation
-- [x] **18.** Piece-square tables
-- [x] **19.** Terminal-position scoring in search
-- [x] **20.** Negamax search
-- [x] **21.** Alpha-beta pruning
-- [x] **22.** Search depth and time limit configuration
-
-### Phase 5: Search optimization
-
-- [x] **23.** Capture-based move ordering
-- [x] **24.** Iterative deepening
-- [x] **25.** Quiescence search (captures and promotions)
-- [x] **26.** Zobrist hashing
-- [x] **27.** Transposition table
-- [x] **28.** Killer move and history heuristics (`internal/engine/ordering.go`; ordering tests)
-- [x] **29.** Principal variation search (`internal/engine/pvs.go`; PVS tests in `internal/engine/serach_test.go`)
-- [x] **30.** Late move reductions (`internal/engine/pvs.go`; LMR tests in `internal/engine/serach_test.go`)
-
-### Phase 6: Engine protocol and play interfaces
-
-- [x] **31.** UCI protocol implementation (`internal/uci/uci.go`; handshake tests in `internal/uci/uci_test.go`)
-- [x] **32.** UCI position and move command handling (`internal/uci/parser.go`; position and move tests in `internal/uci/parser_test.go`)
-- [x] **33.** UCI search command and time management (`internal/uci/uci.go`; search, clock, and stop tests in `internal/uci/uci_test.go`)
-- [x] **34.** Integration with a UCI-compatible chess GUI
-- [x] **35.** Automated engine-vs-engine self-play legality tests (`TestSelfPlayStaysLegal` in `internal/engine/engine_prod_test.go`)
-- [x] **Additional interface:** Interactive CLI and browser-versus-engine app over WebSocket (`cmd/chess/main.go`, `cmd/server/main.go`, `web/app/Board.tsx`)
-
-### Phase 7: Advanced evaluation
-
-- [x] **36.** Piece mobility evaluation (`internal/engine/mobility.go`; evaluation tests)
-- [x] **37.** Pawn structure evaluation (`internal/engine/evaluate.go`; pawn-structure tests)
-- [x] **38.** King safety evaluation (`internal/engine/evaluate.go`; king-safety tests)
-- [x] **39.** Passed pawns and rook-file evaluation (`internal/engine/evaluate.go`; evaluation tests)
-- [x] **40.** Tapered middlegame/endgame evaluation (`internal/engine/evaluate.go`; taper and king-table tests)
-
-### Phase 8: Performance engineering
-
-- [x] **41.** CPU and memory profiling (`go test -cpuprofile`/`-memprofile` on `BenchmarkSearchFixedDepth`; the profile found the string-keyed `PieceAt` lookup at about 60% of CPU)
-- [x] **42.** Profile-guided board and move-generation optimization (`internal/chess/attacks.go`, `internal/chess/board.go`, `internal/chess/movegen.go`; search went from about 60k to about 300k nodes per second with identical node counts)
-- [x] **43.** Search nodes-per-second benchmark (`BenchmarkSearchFixedDepth` and `BenchmarkSearchTimeBudget` in `internal/engine/bench_test.go`)
-- [x] **44.** Comparative evaluation of bitboards (square-walking attack detection replaced by attack tables and ray lookups: perft about 2.0M to 6-8M nodes per second, `LegalMoves` 43.6us to 7.2us)
-- [x] **45.** Allocation and garbage-collection optimization (append-style move generation: about 1,000,000 to about 47,000 allocations per search)
-
-### Phase 9: Advanced engine features and delivery
-
-- [x] **46.** Opening book support (`internal/book`; UCI options `OwnBook` and `BookFile`; text format with one line of UCI moves per game line)
-- [x] **47.** Endgame tablebases: KPK bitbase only (`internal/engine/kpk.go`, built by retrograde analysis and used by `Evaluate`; no other tablebases)
-- [x] **48.** Multi-threaded search (Lazy SMP in `internal/engine/analysis.go`; UCI option `Threads`; shared table with striped locks)
-- [x] **49.** Engine strength benchmarking and rating estimation (`internal/elo`, `internal/match`, `cmd/match`: Elo difference between two configurations, with an optional anchor rating)
-- [x] **50.** Automated regression pipeline and release builds (`.github/workflows/ci.yml`; written and cross-compiled locally, not yet run on GitHub)
-
-## Verification and remaining work
-
-Run the Go checks with:
+You can measure the effect of any change yourself:
 
 ```sh
-go test ./...
+go run ./cmd/match -depth-a 5 -depth-b 4
 ```
 
-The suite includes rule and perft tests, engine evaluation/search tests, UCI parser/session tests, and automated engine self-play that checks every chosen move for legality. Benchmarks are available with `go test ./internal/engine -run '^$' -bench 'BenchmarkSearch(FixedDepth|TimeBudget)$'`; the benchmark reports nodes per second, nodes per search, depth, and transposition-table occupancy.
+### Known limits
 
-Open items and limits: the CI workflow has not run on GitHub yet, and the data-race check (`go test -race`) needs a C compiler, so it runs only in CI. Tablebase support covers king and pawn against king only. The opening book is a plain text format, not Polyglot. `cmd/match` measures Elo differences between engine configurations, not an absolute rating, unless you pass `-anchor`. Threaded search is Lazy SMP and its node counts vary from run to run. The browser app connects to the local server at `ws://localhost:8080/ws`; promotion selection in the browser UI is not exposed.
+- Vajra has been tested through its protocol test suite and scripted sessions. It has not been checked in specific GUIs yet. Reports are welcome.
+- No pondering, no Chess960, and `searchmoves` and `go mate` are ignored.
+- The opening book uses a simple text format, not Polyglot.
+- The only endgame tablebase is the built-in king and pawn against king bitbase.
+- The browser UI always plays White against the engine, and premoves cannot castle.
+
+## Documentation
+
+| | |
+| --- | --- |
+| [Architecture](docs/architecture.md) | How the engine works: board, search, evaluation, threads |
+| [UCI reference](docs/uci.md) | Commands, options, time management, opening books |
+| [Benchmarks](docs/benchmarks.md) | Measurements, method and how to reproduce them |
+| [Web UI and server](docs/web.md) | The browser game and its WebSocket protocol |
+| [Development guide](docs/development.md) | Building, testing, profiling, CI and releasing |
 
 ## Project layout
 
 ```text
-cmd/chess/          Terminal chess game
-cmd/server/         HTTP and WebSocket game server
-cmd/uci/            UCI engine binary
-cmd/match/          Self-play strength benchmark
-internal/chess/     Position, rules, move generation, make/unmake
-internal/engine/    Evaluation and search
-internal/uci/       UCI protocol
-internal/book/      Opening book
-internal/elo/       Elo estimation
-internal/match/     Self-play match runner
-internal/utils/     CLI board and move helpers
-web/app/            Next.js browser application
-web/public/         Chess piece and sound assets
+cmd/
+  uci/         the engine executable (vajra)
+  server/      HTTP and WebSocket server for the web UI
+  chess/       terminal game
+  match/       self-play strength benchmark
+internal/
+  chess/       board, move generation, rules
+  engine/      search, evaluation, transposition table, bitbase, threads
+  uci/         UCI protocol, time management, bench
+  book/        opening book
+  elo/         Elo estimation
+  match/       self-play match runner
+  utils/       helpers for the terminal game
+web/           Next.js browser UI
+docs/          documentation
+.github/       CI and release workflows
 ```
+
+## Testing
+
+```sh
+go test ./cmd/... ./internal/...
+```
+
+Perft counts for the standard positions, rules edge cases, search properties (for example that move ordering never changes a score), forced mates, the king and pawn bitbase checked against the move generator, and engine self-play are all covered. CI also runs the race detector, a short strength match and the web app's lint and build. A release only goes out after the full suite, the race detector and a strength match pass on Linux and Windows. See the [development guide](docs/development.md).
+
+## Contributing
+
+Bug reports and pull requests are welcome. Read [CONTRIBUTING.md](CONTRIBUTING.md) first. For engine changes, please include the bench node count and a self-play result.
+
+## Acknowledgements
+
+The [Chess Programming Wiki](https://www.chessprogramming.org) documents nearly every technique used here, and its perft positions are the backbone of the move generator tests. The king and pawn bitbase uses the retrograde analysis method published by Stockfish.
+
+## License
+
+[MIT](LICENSE)

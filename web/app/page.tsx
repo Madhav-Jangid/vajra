@@ -1,9 +1,5 @@
-import Board from "./Board";
+import Game from "./Game";
 
 export default function Home() {
-  return (
-    <main className="flex flex-1 items-center justify-center p-4">
-      <Board />
-    </main>
-  );
+  return <Game />;
 }

@@ -76,7 +76,7 @@ func TestHandshake(t *testing.T) {
 	lines := session(t, "uci\nisready\nquit\n")
 
 	want := []string{
-		"id name Vajra",
+		"id name " + Name + " " + Version,
 		"id author Madhav Jangid",
 		"option name Hash type spin default 64 min 1 max 1024",
 		"option name Threads type spin default 1 min 1 max 64",

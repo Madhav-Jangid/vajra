@@ -9,8 +9,10 @@ import (
 	"io"
 	"log"
 	"math/bits"
+	"math/rand"
 	"net"
 	"net/http"
+	"strings"
 	"sync"
 
 	"vajra/internal"
@@ -172,7 +174,43 @@ var (
 	status string
 
 	seen = map[string]int{}
+
+	humanColor = chess.White
+
+	searchDepth = internal.Depth
+	thinkTime   = internal.MaxTimeLimit
 )
+
+func startGame(side chess.Color) {
+	humanColor = side
+
+	newGame()
+}
+
+func resolveSide(choice string) chess.Color {
+	switch choice {
+	case "w":
+		return chess.White
+	case "b":
+		return chess.Black
+	case "random":
+		if rand.Intn(2) == 0 {
+			return chess.White
+		}
+
+		return chess.Black
+	}
+
+	return humanColor
+}
+
+func canUndo() bool {
+	if humanColor == chess.Black {
+		return len(moveStack) > 1
+	}
+
+	return len(moveStack) > 0
+}
 
 func newGame() {
 	if err := chess.SetUpInitialPosition(); err != nil {
@@ -189,13 +227,23 @@ func newGame() {
 	}
 
 	moveStack = nil
+	engineEval = nil
 }
 
 // played records a move and the state needed to take it back.
 type played struct {
 	move chess.Move
 	undo chess.Undo
+	san  string
 }
+
+type evalMsg struct {
+	Cp    int `json:"cp"`
+	Mate  int `json:"mate"`
+	Depth int `json:"depth"`
+}
+
+var engineEval *evalMsg
 
 var moveStack []played
 
@@ -214,7 +262,7 @@ func undoMoves() {
 		moveStack = moveStack[:len(moveStack)-1]
 		chess.CurrentPosition.UnmakeMove(last.move, last.undo)
 
-		if chess.CurrentPosition.SideToMove == chess.White {
+		if chess.CurrentPosition.SideToMove == humanColor {
 			break
 		}
 	}
@@ -222,13 +270,16 @@ func undoMoves() {
 	turn = chess.CurrentPosition.SideToMove
 	over = false
 	status = ""
+	engineEval = nil
 }
 
 type inMsg struct {
-	Type   string `json:"type"`
-	Square int    `json:"square"`
-	From   int    `json:"from"`
-	To     int    `json:"to"`
+	Type      string `json:"type"`
+	Square    int    `json:"square"`
+	From      int    `json:"from"`
+	To        int    `json:"to"`
+	Promotion string `json:"promotion"`
+	Side      string `json:"side"`
 }
 
 type outMsg struct {
@@ -237,6 +288,7 @@ type outMsg struct {
 	Board []string `json:"board,omitempty"`
 
 	Turn string `json:"turn,omitempty"`
+	Side string `json:"side"`
 
 	Square int   `json:"square"`
 	Moves  []int `json:"moves,omitempty"`
@@ -248,10 +300,20 @@ type outMsg struct {
 
 	Status string `json:"status,omitempty"`
 	Over   bool   `json:"over"`
+
+	History  []string `json:"history"`
+	LastFrom int      `json:"lastFrom"`
+	LastTo   int      `json:"lastTo"`
+
+	Eval *evalMsg `json:"eval,omitempty"`
 }
 
 func turnName() string {
-	if turn == chess.White {
+	return sideName(turn)
+}
+
+func sideName(c chess.Color) string {
+	if c == chess.White {
 		return "w"
 	}
 
@@ -276,15 +338,32 @@ func snapshot(event string) outMsg {
 		event = "move-check"
 	}
 
+	history := make([]string, len(moveStack))
+	lastFrom, lastTo := -1, -1
+
+	for i, entry := range moveStack {
+		history[i] = entry.san
+	}
+
+	if len(moveStack) > 0 {
+		last := moveStack[len(moveStack)-1].move
+		lastFrom, lastTo = last.From, last.To
+	}
+
 	return outMsg{
 		Type:     "state",
 		Board:    board,
 		Turn:     turnName(),
+		Side:     sideName(humanColor),
 		Event:    event,
 		HasCheck: hasCheck,
 		Check:    check,
 		Over:     over,
 		Status:   status,
+		History:  history,
+		LastFrom: lastFrom,
+		LastTo:   lastTo,
+		Eval:     engineEval,
 	}
 }
 
@@ -319,8 +398,9 @@ func checkedKing() int {
 // applyMove updates all game-level state after a move.
 // This is used for both the human move and the engine move.
 func applyMove(move chess.Move) string {
+	san := chess.CurrentPosition.SAN(move)
 	undo := chess.CurrentPosition.MakeMove(move)
-	moveStack = append(moveStack, played{move: move, undo: undo})
+	moveStack = append(moveStack, played{move: move, undo: undo, san: san})
 
 	event := moveEvent(move)
 
@@ -342,22 +422,26 @@ func applyMove(move chess.Move) string {
 	return event
 }
 
-func handle(ws *wsConn, m inMsg) {
+func handle(send func(outMsg), m inMsg) {
 	mu.Lock()
 	defer mu.Unlock()
 
 	switch m.Type {
 
 	case "state":
-		_ = ws.send(snapshot(""))
+		send(snapshot(""))
 
 	case "reset":
-		newGame()
-		_ = ws.send(snapshot(""))
+		startGame(resolveSide(m.Side))
+		send(snapshot(""))
+		engineReply(send)
 
 	case "undo":
-		undoMoves()
-		_ = ws.send(snapshot(""))
+		if canUndo() {
+			undoMoves()
+		}
+
+		send(snapshot(""))
 
 	case "moves":
 		p := chess.CurrentPosition.Board.PieceAt(m.Square)
@@ -365,6 +449,7 @@ func handle(ws *wsConn, m inMsg) {
 		var moves []chess.Move
 
 		if !over &&
+			turn == humanColor &&
 			p.Type != chess.Empty &&
 			p.Color == turn {
 
@@ -377,7 +462,7 @@ func handle(ws *wsConn, m inMsg) {
 			destinations = append(destinations, move.To)
 		}
 
-		_ = ws.send(outMsg{
+		send(outMsg{
 			Type:   "moves",
 			Square: m.Square,
 			Moves:  destinations,
@@ -391,17 +476,18 @@ func handle(ws *wsConn, m inMsg) {
 		p := chess.CurrentPosition.Board.PieceAt(m.From)
 
 		if over ||
+			turn != humanColor ||
 			p.Type == chess.Empty ||
 			p.Color != turn {
 
-			_ = ws.send(snapshot(""))
+			send(snapshot(""))
 			return
 		}
 
-		move, ok := findMove(m.From, m.To)
+		move, ok := findMove(m.From, m.To, m.Promotion)
 
 		if !ok {
-			_ = ws.send(snapshot(""))
+			send(snapshot(""))
 			return
 		}
 
@@ -415,41 +501,46 @@ func handle(ws *wsConn, m inMsg) {
 		//
 		// This means the frontend does not have to
 		// wait for the engine search to finish.
-		_ = ws.send(snapshot(event))
+		send(snapshot(event))
 
 		if over {
 			return
 		}
 
-		if turn != chess.Black {
-			return
-		}
-
-		fmt.Println("Engine thinking...")
-		engineMove, hasMove := engine.IterativeSearch(
-			&chess.CurrentPosition,
-			internal.Depth,
-			internal.MaxTimeLimit,
-		)
-		if !hasMove {
-			log.Println("engine found no move")
-			return
-		}
-
-		fmt.Println("Human move:", moveString(move))
-		fmt.Println("Engine move:", moveString(engineMove))
-
-		engineEvent := applyMove(engineMove)
-
-		_ = ws.send(snapshot(engineEvent))
-
-		chess.CurrentPosition.ValidateFen()
-
-		fmt.Println(
-			"Evaluation:",
-			engine.Evaluate(&chess.CurrentPosition),
-		)
+		engineReply(send)
 	}
+}
+
+func engineReply(send func(outMsg)) {
+	if over || turn == humanColor {
+		return
+	}
+
+	fmt.Println("Engine thinking...")
+
+	var lastInfo engine.SearchInfo
+
+	move, ok := engine.IterativeSearchWithInfo(
+		&chess.CurrentPosition,
+		searchDepth,
+		thinkTime,
+		func(info engine.SearchInfo) { lastInfo = info },
+	)
+	if !ok {
+		log.Println("engine found no move")
+
+		return
+	}
+
+	fmt.Println("Engine move:", moveString(move))
+
+	event := applyMove(move)
+
+	if lastInfo.Depth > 0 {
+		engineEval = whiteEval(lastInfo, humanColor == chess.Black)
+	}
+
+	send(snapshot(event))
 }
 
 // moveString formats a move in coordinate notation, e.g. "e2e4" or "e7e8q".
@@ -472,16 +563,40 @@ func moveString(m chess.Move) string {
 	return s
 }
 
-func findMove(from, to int) (chess.Move, bool) {
-	moves := chess.CurrentPosition.LegalMoves(from)
+func findMove(from, to int, promotion string) (chess.Move, bool) {
+	if promotion == "" {
+		promotion = "q"
+	}
 
-	for _, move := range moves {
-		if move.From == from && move.To == to {
-			return move, true
+	for _, move := range chess.CurrentPosition.LegalMoves(from) {
+		if move.From != from || move.To != to {
+			continue
 		}
+
+		if move.Flags&chess.Promotion != 0 && !strings.HasSuffix(moveString(move), strings.ToLower(promotion)) {
+			continue
+		}
+
+		return move, true
 	}
 
 	return chess.Move{}, false
+}
+
+func whiteEval(info engine.SearchInfo, engineIsWhite bool) *evalMsg {
+	sign := -1
+
+	if engineIsWhite {
+		sign = 1
+	}
+
+	e := &evalMsg{Cp: sign * info.Score, Depth: info.Depth}
+
+	if mate, ok := engine.MateIn(info.Score); ok {
+		e.Mate = sign * mate
+	}
+
+	return e
 }
 
 func moveEvent(move chess.Move) string {
@@ -525,7 +640,7 @@ func wsHandler(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 
-		handle(ws, m)
+		handle(func(o outMsg) { _ = ws.send(o) }, m)
 	}
 }
 

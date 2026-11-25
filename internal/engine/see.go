@@ -255,7 +255,3 @@ func absInt(x int) int {
 	}
 	return x
 }
-
-func unusedKeepBits() {
-	_ = bits.TrailingZeros64(0)
-}
