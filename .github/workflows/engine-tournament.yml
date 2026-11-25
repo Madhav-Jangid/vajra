@@ -99,15 +99,22 @@ jobs:
           sudo apt-get update
 
           sudo apt-get install -y \
+            git \
             build-essential \
+            cmake \
             qt6-base-dev \
-            qt6-tools-dev \
-            git
+            qt6-svg-dev
 
           echo
-          echo "Cloning Cute Chess..."
+          echo "Qt version:"
+          qmake6 --version || true
 
-          git clone --depth 1 \
+          echo
+          echo "Cloning Cute Chess 1.5.1..."
+
+          git clone \
+            --depth 1 \
+            --branch 1.5.1 \
             https://github.com/cutechess/cutechess.git
 
           cd cutechess
@@ -115,15 +122,37 @@ jobs:
           echo
           echo "Building Cute Chess..."
 
-          qmake6
-          make -j2
+          cmake -S . -B build
+          cmake --build build --parallel 2
 
-          sudo cp cutechess-cli /usr/local/bin/cutechess-cli
+          echo
+          echo "Locating cutechess-cli..."
+
+          CLI=$(find build -type f -name "cutechess-cli" -print -quit)
+
+          if [ -z "$CLI" ]; then
+            echo "ERROR: cutechess-cli was not found."
+
+            echo
+            echo "Executable files produced by build:"
+            find build -type f -executable -print
+
+            exit 1
+          fi
+
+          echo "Found: $CLI"
+
+          sudo cp "$CLI" /usr/local/bin/cutechess-cli
+          sudo chmod +x /usr/local/bin/cutechess-cli
 
           echo
           echo "Cute Chess version:"
           cutechess-cli --version
 
+          echo
+          echo "Cute Chess CLI installed successfully."
+
+          
       # =========================================
       # Test Vajra UCI
       # =========================================
