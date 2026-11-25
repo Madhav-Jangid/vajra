@@ -114,7 +114,6 @@ jobs:
 
           git clone \
             --depth 1 \
-            --branch 1.5.1 \
             https://github.com/cutechess/cutechess.git
 
           cd cutechess
