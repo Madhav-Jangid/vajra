@@ -8,52 +8,73 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      # =========================================
+      # Checkout repository
+      # =========================================
       - name: Checkout Vajra
         uses: actions/checkout@v4
 
+      # =========================================
+      # Setup Go
+      # =========================================
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
           go-version: "1.27"
 
+      # =========================================
+      # Build Vajra UCI
+      # =========================================
       - name: Build Vajra UCI
-        shell: bash
-        run: |
-          go version
-
-          GOOS=linux GOARCH=amd64 \
-            go build -o vajra ./cmd/uci
-
-          chmod +x vajra
-
-          echo "Vajra built:"
-          file vajra
-
-      - name: Download Stockfish
         shell: bash
         run: |
           set -e
 
-          wget -q \
-            https://github.com/official-stockfish/Stockfish/releases/download/sf_19/stockfish-linux-x86-64-universal.tar.gz \
-            -O stockfish.tar.gz
+          echo "Go version:"
+          go version
 
-          echo "Extracting Stockfish..."
-          tar -xzf stockfish.tar.gz
+          echo
+          echo "Building Vajra UCI..."
 
-          STOCKFISH_BIN=$(find . -type f -name "stockfish" | head -n 1)
+          GOOS=linux GOARCH=amd64 \
+            go build -o vajra ./cmd/uci
 
-          if [ -z "$STOCKFISH_BIN" ]; then
-            echo "Stockfish binary not found."
-            find . -type f
+          chmod +x ./vajra
+
+          echo
+          echo "Vajra binary:"
+          file ./vajra
+
+      # =========================================
+      # Prepare Stockfish
+      # =========================================
+      - name: Prepare Stockfish
+        shell: bash
+        run: |
+          set -e
+
+          STOCKFISH="./tools/stockfish/stockfish-linux-x86-64-universal"
+
+          echo "Looking for Stockfish at:"
+          echo "$STOCKFISH"
+
+          if [ ! -f "$STOCKFISH" ]; then
+            echo
+            echo "ERROR: Stockfish binary not found."
+            echo
+            echo "Files inside tools/stockfish:"
+            find ./tools/stockfish -maxdepth 2 -type f -print
             exit 1
           fi
 
-          echo "Found Stockfish at: $STOCKFISH_BIN"
-
-          cp "$STOCKFISH_BIN" ./stockfish
+          cp "$STOCKFISH" ./stockfish
           chmod +x ./stockfish
 
+          echo
+          echo "Stockfish binary:"
+          file ./stockfish
+
+          echo
           echo "Testing Stockfish UCI..."
 
           timeout 10s ./stockfish <<EOF
@@ -62,10 +83,19 @@ jobs:
           quit
           EOF
 
+          echo
+          echo "Stockfish UCI test passed."
 
+      # =========================================
+      # Install Cute Chess CLI
+      # =========================================
       - name: Install Cute Chess CLI
         shell: bash
         run: |
+          set -e
+
+          echo "Installing Cute Chess dependencies..."
+
           sudo apt-get update
 
           sudo apt-get install -y \
@@ -74,19 +104,34 @@ jobs:
             qt6-tools-dev \
             git
 
-          git clone --depth 1 https://github.com/cutechess/cutechess.git
+          echo
+          echo "Cloning Cute Chess..."
+
+          git clone --depth 1 \
+            https://github.com/cutechess/cutechess.git
 
           cd cutechess
+
+          echo
+          echo "Building Cute Chess..."
+
           qmake6
           make -j2
 
           sudo cp cutechess-cli /usr/local/bin/cutechess-cli
 
+          echo
+          echo "Cute Chess version:"
           cutechess-cli --version
 
+      # =========================================
+      # Test Vajra UCI
+      # =========================================
       - name: Test Vajra UCI
         shell: bash
         run: |
+          set -e
+
           echo "Testing Vajra UCI..."
 
           timeout 10s ./vajra <<EOF
@@ -95,10 +140,31 @@ jobs:
           quit
           EOF
 
+          echo
+          echo "Vajra UCI test passed."
+
+      # =========================================
+      # Run Tournament
+      # =========================================
       - name: Run tournament
         shell: bash
         run: |
+          set -e
+
           mkdir -p tournament
+
+          echo
+          echo "========================================="
+          echo "Starting Vajra vs Stockfish tournament"
+          echo "========================================="
+          echo
+          echo "Vajra:       0.1.0"
+          echo "Stockfish:   2500 Elo"
+          echo "Games:       200"
+          echo "Threads:     1"
+          echo "Hash:        512 MB"
+          echo "Time control: 40 moves / 300 seconds"
+          echo
 
           cutechess-cli \
             -engine \
@@ -122,28 +188,42 @@ jobs:
             -concurrency 1 \
             -pgnout "$GITHUB_WORKSPACE/tournament/vajra-stockfish-2500.pgn"
 
+      # =========================================
+      # Check Tournament Result
+      # =========================================
       - name: Check tournament result
         shell: bash
         run: |
-          echo "Tournament completed."
+          set -e
 
-          if [ ! -f tournament/vajra-stockfish-2500.pgn ]; then
+          PGN="tournament/vajra-stockfish-2500.pgn"
+
+          if [ ! -f "$PGN" ]; then
+            echo
             echo "ERROR: PGN was not created."
             exit 1
           fi
 
           echo
+          echo "========================================="
+          echo "Tournament completed"
+          echo "========================================="
+
+          echo
           echo "PGN size:"
-          wc -c tournament/vajra-stockfish-2500.pgn
+          wc -c "$PGN"
 
           echo
           echo "Games found:"
-          grep -c '^\[Result ' tournament/vajra-stockfish-2500.pgn || true
+          grep -c '^\[Result ' "$PGN" || true
 
           echo
-          echo "PGN:"
-          head -30 tournament/vajra-stockfish-2500.pgn
+          echo "First game:"
+          head -40 "$PGN"
 
+      # =========================================
+      # Upload PGN
+      # =========================================
       - name: Upload tournament PGN
         uses: actions/upload-artifact@v4
         with:
