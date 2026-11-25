@@ -16,11 +16,13 @@ jobs:
         with:
           go-version: "1.27"
 
-      - name: Build Vajra
+      - name: Build Vajra UCI
         shell: bash
         run: |
           go version
-          GOOS=linux GOARCH=amd64 go build -o vajra ./cmd/...
+
+          GOOS=linux GOARCH=amd64 \
+            go build -o vajra ./cmd/uci
 
           chmod +x vajra
 
@@ -40,12 +42,14 @@ jobs:
 
           if [ -z "$STOCKFISH_BIN" ]; then
             echo "Stockfish binary not found"
+            find . -type f
             exit 1
           fi
 
           cp "$STOCKFISH_BIN" ./stockfish
           chmod +x ./stockfish
 
+          echo "Stockfish:"
           ./stockfish <<EOF
           uci
           quit
@@ -55,6 +59,7 @@ jobs:
         shell: bash
         run: |
           sudo apt-get update
+
           sudo apt-get install -y \
             build-essential \
             qt6-base-dev \
@@ -64,7 +69,6 @@ jobs:
           git clone --depth 1 https://github.com/cutechess/cutechess.git
 
           cd cutechess
-
           qmake6
           make -j2
 
@@ -75,7 +79,9 @@ jobs:
       - name: Test Vajra UCI
         shell: bash
         run: |
-          ./vajra <<EOF
+          echo "Testing Vajra UCI..."
+
+          timeout 10s ./vajra <<EOF
           uci
           isready
           quit
@@ -87,10 +93,12 @@ jobs:
           mkdir -p tournament
 
           cutechess-cli \
-            -engine cmd="$GITHUB_WORKSPACE/vajra" \
+            -engine \
+              cmd="$GITHUB_WORKSPACE/vajra" \
               name="Vajra 0.1.0" \
               proto=uci \
-            -engine cmd="$GITHUB_WORKSPACE/stockfish" \
+            -engine \
+              cmd="$GITHUB_WORKSPACE/stockfish" \
               name="Stockfish 2500" \
               proto=uci \
               option.UCI_LimitStrength=true \
@@ -100,27 +108,33 @@ jobs:
               proto=uci \
               option.Threads=1 \
               option.Hash=512 \
-            -rounds 100 \
+            -games 200 \
             -repeat \
             -recover \
             -concurrency 1 \
             -pgnout "$GITHUB_WORKSPACE/tournament/vajra-stockfish-2500.pgn"
 
-      - name: Show tournament result
+      - name: Check tournament result
         shell: bash
         run: |
-          echo "Tournament completed"
+          echo "Tournament completed."
 
-          if [ -f tournament/vajra-stockfish-2500.pgn ]; then
-            echo "PGN size:"
-            wc -c tournament/vajra-stockfish-2500.pgn
-
-            echo "Games:"
-            grep -c '^\[Result ' tournament/vajra-stockfish-2500.pgn || true
-          else
-            echo "PGN was not created"
+          if [ ! -f tournament/vajra-stockfish-2500.pgn ]; then
+            echo "ERROR: PGN was not created."
             exit 1
           fi
+
+          echo
+          echo "PGN size:"
+          wc -c tournament/vajra-stockfish-2500.pgn
+
+          echo
+          echo "Games found:"
+          grep -c '^\[Result ' tournament/vajra-stockfish-2500.pgn || true
+
+          echo
+          echo "PGN:"
+          head -30 tournament/vajra-stockfish-2500.pgn
 
       - name: Upload tournament PGN
         uses: actions/upload-artifact@v4
