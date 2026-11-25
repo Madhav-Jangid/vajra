@@ -10,7 +10,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        batch: [1, 2, 3, 4]
+        batch: [1, 2, 3, 4, 5, 6, 7, 8]
 
     steps:
       # =========================================
@@ -192,7 +192,7 @@ jobs:
 
           mkdir -p tournament
 
-          PGN="$GITHUB_WORKSPACE/tournament/vajra-stockfish-2500-batch-${{ matrix.batch }}.pgn"
+          PGN="$GITHUB_WORKSPACE/tournament/vajra-stockfish-2700-batch-${{ matrix.batch }}.pgn"
 
           echo
           echo "========================================="
@@ -200,10 +200,12 @@ jobs:
           echo "========================================="
           echo
           echo "Batch:        ${{ matrix.batch }}"
-          echo "Games:        50"
+          echo "Games:        25"
+          echo "Total games:  200"
+          echo "Stockfish:    2700 Elo"
           echo "Threads:      1"
           echo "Hash:         512 MB"
-          echo "Time control: 40 moves / 300 seconds"
+          echo "Time control: 40 moves / 150 seconds"
           echo "PGN:          $PGN"
           echo
 
@@ -214,16 +216,16 @@ jobs:
               proto=uci \
             -engine \
               cmd="$GITHUB_WORKSPACE/stockfish" \
-              name="Stockfish 2500" \
+              name="Stockfish 2700" \
               proto=uci \
               option.UCI_LimitStrength=true \
-              option.UCI_Elo=2500 \
+              option.UCI_Elo=2700 \
             -each \
-              tc=40/300 \
+              tc=40/150 \
               proto=uci \
               option.Threads=1 \
               option.Hash=512 \
-            -games 50 \
+            -games 25 \
             -repeat \
             -recover \
             -concurrency 1 \
@@ -237,7 +239,7 @@ jobs:
         run: |
           set -e
 
-          PGN="tournament/vajra-stockfish-2500-batch-${{ matrix.batch }}.pgn"
+          PGN="tournament/vajra-stockfish-2700-batch-${{ matrix.batch }}.pgn"
 
           if [ ! -f "$PGN" ]; then
             echo
@@ -251,6 +253,7 @@ jobs:
           echo "========================================="
           echo
           echo "Batch: ${{ matrix.batch }}"
+          echo "Games: 25"
           echo
           echo "PGN size:"
           wc -c "$PGN"
@@ -269,6 +272,6 @@ jobs:
       - name: Upload tournament PGN
         uses: actions/upload-artifact@v4
         with:
-          name: vajra-stockfish-2500-batch-${{ matrix.batch }}
-          path: tournament/vajra-stockfish-2500-batch-${{ matrix.batch }}.pgn
+          name: vajra-stockfish-2700-batch-${{ matrix.batch }}
+          path: tournament/vajra-stockfish-2700-batch-${{ matrix.batch }}.pgn
           retention-days: 30
