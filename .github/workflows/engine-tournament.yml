@@ -32,28 +32,36 @@ jobs:
       - name: Download Stockfish
         shell: bash
         run: |
+          set -e
+
           wget -q \
-            https://github.com/official-stockfish/Stockfish/releases/latest/download/stockfish-ubuntu-x64-avx2.tar \
-            -O stockfish.tar
+            https://github.com/official-stockfish/Stockfish/releases/download/sf_19/stockfish-linux-x86-64-universal.tar.gz \
+            -O stockfish.tar.gz
 
-          tar -xf stockfish.tar
+          echo "Extracting Stockfish..."
+          tar -xzf stockfish.tar.gz
 
-          STOCKFISH_BIN=$(find . -type f -name "stockfish-ubuntu-x64-avx2" | head -n 1)
+          STOCKFISH_BIN=$(find . -type f -name "stockfish" | head -n 1)
 
           if [ -z "$STOCKFISH_BIN" ]; then
-            echo "Stockfish binary not found"
+            echo "Stockfish binary not found."
             find . -type f
             exit 1
           fi
 
+          echo "Found Stockfish at: $STOCKFISH_BIN"
+
           cp "$STOCKFISH_BIN" ./stockfish
           chmod +x ./stockfish
 
-          echo "Stockfish:"
-          ./stockfish <<EOF
+          echo "Testing Stockfish UCI..."
+
+          timeout 10s ./stockfish <<EOF
           uci
+          isready
           quit
           EOF
+
 
       - name: Install Cute Chess CLI
         shell: bash
