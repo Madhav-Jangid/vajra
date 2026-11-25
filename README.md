@@ -5,7 +5,7 @@ Vajra is a UCI chess engine written in Go. It is a single static binary of about
 It also comes with a browser game, so you can play against it without installing a GUI.
 
 - **Fast.** About 450,000 nodes per second on one thread and 3.8 million with 8 threads, measured on an Intel Core i7-12700. Move generation runs perft at 6 to 8 million nodes per second.
-- **Correct.** Perft counts match the published values for the standard positions, and the test suite has 305 tests and 687 subtests.
+- **Correct.** Perft counts match the published values for the standard positions, and the test suite has 325 tests and 687 subtests.
 - **Reproducible.** `vajra bench` prints a deterministic node count, so any change to how the engine searches shows up as a different number.
 - **Readable.** Standard library only. The packages are small and each one does a single job.
 
@@ -27,7 +27,7 @@ It also comes with a browser game, so you can play against it without installing
 - Mop-up evaluation for won endgames
 
 **Engine**
-- Browser game with drag and drop, premoves, a promotion picker, an evaluation bar and a move list
+- Browser game: play White, Black or a random side, with drag and drop, premoves, a promotion picker, an evaluation bar and a move list
 - UCI protocol with `Hash`, `Threads`, `Move Overhead`, `OwnBook` and `BookFile` options
 - Opening book from a plain text file of game lines
 - Principal variation and hash usage in every `info` line
@@ -110,7 +110,7 @@ go run ./cmd/match -depth-a 5 -depth-b 4
 - No pondering, no Chess960, and `searchmoves` and `go mate` are ignored.
 - The opening book uses a simple text format, not Polyglot.
 - The only endgame tablebase is the built-in king and pawn against king bitbase.
-- The browser UI always plays White against the engine, and premoves cannot castle.
+- In the browser UI premoves cannot castle, and the server runs one shared game.
 
 ## Documentation
 

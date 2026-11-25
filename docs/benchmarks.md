@@ -111,7 +111,7 @@ go run ./cmd/match -depth-a 5 -depth-b 5 -killers-a=false
 
 | | |
 | --- | --- |
-| Tests | 305 tests and 687 subtests, none failing and none skipped |
+| Tests | 325 tests and 687 subtests, none failing and none skipped |
 | Run time | about 20 seconds for the whole suite, about 15 seconds of it in the engine package |
 | Go source | about 5,600 lines, plus about 10,300 lines of tests |
 | Binary | 2.0 MB (stripped, static, no dependencies) |

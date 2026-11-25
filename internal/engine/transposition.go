@@ -129,7 +129,10 @@ func (tt *TranspositionTable) HashFull() int {
 	}
 	used := 0
 	for i := 0; i < sample; i++ {
+		tt.locks[i%ttStripes].Lock()
 		e := tt.entries[i]
+		tt.locks[i%ttStripes].Unlock()
+
 		if e.Valid && e.Gen == tt.gen {
 			used++
 		}

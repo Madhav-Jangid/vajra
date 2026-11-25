@@ -1,6 +1,6 @@
 # Web UI and game server
 
-Besides the UCI engine, the repository contains a browser game: you play White against Vajra on a chessboard in your browser, in a layout modelled on chess.com.
+Besides the UCI engine, the repository contains a browser game: you play against Vajra on a chessboard in your browser, as White, as Black or as a random side, in a layout modelled on chess.com.
 
 ```
 browser (web/)  <--- WebSocket JSON --->  cmd/server  --->  internal/engine
@@ -28,6 +28,7 @@ The web app is built with Next.js, React and Tailwind CSS. After changing the se
 
 ## What the UI does
 
+- **Choosing a side.** Before a game starts, and after it ends, a **Play as** selector offers White, Random and Black, and a **New game** button starts the next game. While a game is in progress both are hidden. Choosing a side before the first move starts that game at once. Playing Black turns the board around, and Vajra makes the first move.
 - **Moving.** Drag a piece to a square or click the piece and then the square. Legal destinations are shown as dots, captures as rings.
 - **Premoves.** While Vajra is thinking, drag or click one of your pieces to queue a move. The two squares turn red. When Vajra replies the move is sent at once; if it is no longer legal the server refuses it and the premove is dropped. Right-click cancels. Only one premove is kept, and castling cannot be premoved.
 - **Promotion.** A pawn reaching the last rank opens a picker over the board with queen, knight, rook and bishop. Clicking outside it cancels the move. It works for moves and for premoves, from either side of a flipped board.
@@ -54,8 +55,9 @@ Messages are JSON. Squares are numbers from 0 (`a1`) to 63 (`h8`).
 | Message | Meaning |
 | --- | --- |
 | `{"type":"state"}` | Ask for the current position. |
-| `{"type":"reset"}` | Start a new game. |
-| `{"type":"undo"}` | Take back the last move pair. |
+| `{"type":"reset"}` | Start a new game, keeping the side you play. |
+| `{"type":"reset","side":"b"}` | Start a new game as `w`, `b` or `random`. When you play Black, the server answers with the empty board and then with Vajra's first move. |
+| `{"type":"undo"}` | Take back your last move and Vajra's reply. Ignored when you play Black and only Vajra's opening move has been played. |
 | `{"type":"moves","square":12}` | Ask for the legal destinations of the piece on a square. |
 | `{"type":"move","from":12,"to":28}` | Play a move. The server answers at once with the new position, then again after the engine has replied. |
 | `{"type":"move","from":48,"to":56,"promotion":"n"}` | Play a promotion. `promotion` is `q`, `r`, `b` or `n` and defaults to `q`. |
@@ -71,6 +73,7 @@ A move that is not legal is ignored and the server answers with the unchanged po
   "type": "state",
   "board": ["R", "N", "...", "k", "r"],
   "turn": "w",
+  "side": "w",
   "event": "move-self",
   "hasCheck": false,
   "check": -1,
@@ -83,9 +86,9 @@ A move that is not legal is ignored and the server answers with the unchanged po
 }
 ```
 
-`board` has 64 entries from `a1` to `h8`. A capital letter is a white piece, a lower case letter is a black piece, and `"."` is an empty square. `event` is one of `move-self`, `capture`, `castle`, `promote`, `move-check` or `game-end`, and tells the UI which sound to play. `check` is the square of the king in check, valid when `hasCheck` is true. When `over` is true, `status` says why.
+`side` is the side you play, `w` or `b`. `board` has 64 entries from `a1` to `h8`. A capital letter is a white piece, a lower case letter is a black piece, and `"."` is an empty square. `event` is one of `move-self`, `capture`, `castle`, `promote`, `move-check` or `game-end`, and tells the UI which sound to play. `check` is the square of the king in check, valid when `hasCheck` is true. When `over` is true, `status` says why.
 
-`history` is every move so far in standard algebraic notation. `lastFrom` and `lastTo` are the squares of the last move, or `-1` before the first move. `eval` is Vajra's evaluation of the position after its last search, from White's point of view: `cp` in centipawns, `mate` as the number of moves to a forced mate (positive when White mates, negative when Black does, `0` when there is none) and `depth` the search depth. It is absent until Vajra has moved, and after an undo.
+`history` is every move so far in standard algebraic notation. `lastFrom` and `lastTo` are the squares of the last move, or `-1` before the first move. `eval` is Vajra's evaluation of the position after its last search, always from White's point of view whichever side Vajra plays: `cp` in centipawns, `mate` as the number of moves to a forced mate (positive when White mates, negative when Black does, `0` when there is none) and `depth` the search depth. It is absent until Vajra has moved, and after an undo.
 
 `moves`:
 
@@ -108,7 +111,6 @@ npm run build
 
 ## Limitations
 
-- You always play White.
 - One shared game, as described above.
 - Premoves cannot castle or capture en passant.
 - The interface has been exercised in a real browser with scripted mouse input, but there are no automated browser tests in the repository yet.

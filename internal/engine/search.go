@@ -66,7 +66,7 @@ func expired(deadline time.Time) bool {
 		return true
 	}
 
-	if NodeLimit > 0 && Nodes >= NodeLimit {
+	if NodeLimit > 0 && atomic.LoadUint64(&Nodes) >= NodeLimit {
 		return true
 	}
 
@@ -115,7 +115,7 @@ func transpositionKey(p *chess.Position) uint64 {
 }
 
 func startSearch(timeLimit time.Duration) time.Time {
-	Nodes = 0
+	atomic.StoreUint64(&Nodes, 0)
 	if !PreserveTT {
 		TT.Clear()
 	}

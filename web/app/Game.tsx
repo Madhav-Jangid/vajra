@@ -186,6 +186,13 @@ export default function Game() {
 
   const canUndo = connected && !thinking && state.history.length > (side === "b" ? 1 : 0);
 
+  const active = state.history.length > 0 && !state.over;
+
+  const whitePlayer = side === "w" ? you : vajra;
+  const blackPlayer = side === "w" ? vajra : you;
+  const top = flipped ? whitePlayer : blackPlayer;
+  const bottom = flipped ? blackPlayer : whitePlayer;
+
   return (
     <main className="app">
       <header className="topbar">
@@ -200,7 +207,7 @@ export default function Game() {
           <EvalBar evaluation={state.eval} flipped={flipped} />
 
           <div className="column">
-            {flipped ? you : vajra}
+            {top}
 
             <div className="board-frame">
               <BoardView
@@ -228,7 +235,7 @@ export default function Game() {
               )}
             </div>
 
-            {flipped ? vajra : you}
+            {bottom}
           </div>
         </section>
 
@@ -249,26 +256,30 @@ export default function Game() {
 
           <MoveList history={state.history} />
 
-          <div className="sides" role="group" aria-label="Play as">
-            <span>Play as</span>
+          {!active && (
+            <div className="sides" role="group" aria-label="Play as">
+              <span>Play as</span>
 
-            {SIDES.map((option) => (
-              <button
-                key={option.value}
-                type="button"
-                aria-pressed={picked === option.value}
-                disabled={!connected}
-                onClick={() => chooseSide(option.value)}
-              >
-                {option.label}
-              </button>
-            ))}
-          </div>
+              {SIDES.map((option) => (
+                <button
+                  key={option.value}
+                  type="button"
+                  aria-pressed={picked === option.value}
+                  disabled={!connected}
+                  onClick={() => chooseSide(option.value)}
+                >
+                  {option.label}
+                </button>
+              ))}
+            </div>
+          )}
 
           <div className="controls">
-            <button type="button" className="primary" onClick={() => startGame(picked)} disabled={!connected}>
-              New game
-            </button>
+            {!active && (
+              <button type="button" className="primary" onClick={() => startGame(picked)} disabled={!connected}>
+                New game
+              </button>
+            )}
             <button type="button" onClick={undo} disabled={!canUndo}>
               Undo
             </button>

@@ -101,6 +101,16 @@ func TestThreadedSearchStartsHelpers(t *testing.T) {
 	}
 }
 
+func settledGoroutines(base int) int {
+	deadline := time.Now().Add(2 * time.Second)
+
+	for runtime.NumGoroutine() > base && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	return runtime.NumGoroutine()
+}
+
 func TestThreadedSearchLeavesNoGoroutinesBehind(t *testing.T) {
 	withThreads(t, 4)
 	prodSetFlags(t, prodDefaultFlags)
@@ -113,7 +123,7 @@ func TestThreadedSearchLeavesNoGoroutinesBehind(t *testing.T) {
 		IterativeSearchWithInfo(&p, 12, 150*time.Millisecond, nil)
 	}
 
-	if now := runtime.NumGoroutine(); now > base {
+	if now := settledGoroutines(base); now > base {
 		t.Fatalf("%d goroutines before, %d after", base, now)
 	}
 }
@@ -158,9 +168,7 @@ func TestThreadedSearchStopsPromptly(t *testing.T) {
 		t.Fatal("the threaded search ignored the stop request")
 	}
 
-	time.Sleep(50 * time.Millisecond)
-
-	if now := runtime.NumGoroutine(); now > base {
+	if now := settledGoroutines(base); now > base {
 		t.Fatalf("%d goroutines before the search, %d after the stop", base, now)
 	}
 }
@@ -236,5 +244,76 @@ func TestHelpersDoNotLeaveTheEngineStopped(t *testing.T) {
 	move, ok := IterativeSearch(&q, 3, 0)
 	if !ok || !prodIsLegal(&q, move) {
 		t.Fatalf("a search after a threaded one failed: %s (found=%v)", prodMoveName(move), ok)
+	}
+}
+
+func TestHashFullIsSafeWhileThreadsStore(t *testing.T) {
+	tt := NewTranspositionTable(1)
+	stop := make(chan struct{})
+	done := make(chan struct{})
+
+	for g := 0; g < 4; g++ {
+		go func(g int) {
+			defer func() { done <- struct{}{} }()
+
+			for i := 0; ; i++ {
+				select {
+				case <-stop:
+					return
+				default:
+				}
+
+				tt.Store(uint64(i*4+g+1), i%20, i, TTExact, chess.Move{})
+			}
+		}(g)
+	}
+
+	for i := 0; i < 2000; i++ {
+		if got := tt.HashFull(); got < 0 || got > 1000 {
+			t.Fatalf("HashFull = %d, want 0 to 1000", got)
+		}
+	}
+
+	close(stop)
+
+	for g := 0; g < 4; g++ {
+		<-done
+	}
+}
+
+func TestThreadedSearchReportsAreSafe(t *testing.T) {
+	withThreads(t, 4)
+	prodSetFlags(t, prodDefaultFlags)
+
+	p := prodPos(t, "r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 0 1")
+
+	var reports int
+
+	IterativeSearchWithInfo(&p, 12, 300*time.Millisecond, func(info SearchInfo) {
+		reports++
+
+		if info.HashFull < 0 || info.HashFull > 1000 || info.Nodes == 0 {
+			t.Errorf("bad report %+v", info)
+		}
+	})
+
+	if reports == 0 {
+		t.Fatal("the threaded search reported nothing")
+	}
+}
+
+func TestNodeLimitIsSafeWithThreads(t *testing.T) {
+	withThreads(t, 4)
+	prodSetFlags(t, prodDefaultFlags)
+
+	p := prodPos(t, "r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 0 1")
+
+	NodeLimit = 20000
+
+	t.Cleanup(func() { NodeLimit = 0 })
+
+	move, ok := IterativeSearchWithInfo(&p, 64, 0, nil)
+	if !ok || !prodIsLegal(&p, move) {
+		t.Fatalf("got %s (found=%v)", prodMoveName(move), ok)
 	}
 }

@@ -81,7 +81,7 @@ func IterativeSearchWithInfo(
 			report(SearchInfo{
 				Depth:    depth,
 				Score:    score,
-				Nodes:    Nodes,
+				Nodes:    atomic.LoadUint64(&Nodes),
 				HashFull: TT.HashFull(),
 				Elapsed:  time.Since(start),
 				Best:     best,
