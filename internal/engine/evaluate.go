@@ -333,6 +333,10 @@ func EvaluateBreakdown(p *chess.Position) EvalBreakdown {
 }
 
 func Evaluate(p *chess.Position) int {
+	if score, ok := kpkScore(p); ok {
+		return score
+	}
+
 	return EvaluateBreakdown(p).Total()
 }
 

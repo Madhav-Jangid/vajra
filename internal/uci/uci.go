@@ -14,25 +14,20 @@ import (
 )
 
 const (
-	// Name and Author are sent in response to "uci".
 	Name   = "Vajra"
 	Author = "Madhav Jangid"
 
-	// MaxSearchDepth bounds a search that has no depth limit of its own.
 	MaxSearchDepth = 64
 
 	defaultOverhead = 50 * time.Millisecond
 	defaultHashMB   = 64
 	maxHashMB       = 1024
 	maxOverheadMS   = 5000
+	maxThreads      = 64
 
-	// movesToPlan is how many more moves the clock is spread over when the
-	// GUI does not say.
 	movesToPlan = 30
 )
 
-// Budget turns the parameters of a "go" command into a time limit and a depth
-// limit for the side to move. A zero limit means "no time limit".
 func Budget(g GoArgs, side chess.Color, overhead time.Duration) (limit time.Duration, depth int) {
 	depth = MaxSearchDepth
 
@@ -69,10 +64,18 @@ func Budget(g GoArgs, side chess.Color, overhead time.Duration) (limit time.Dura
 	return max(min(limit, spare), time.Millisecond), depth
 }
 
-// Engine runs the UCI protocol over a reader and a writer.
+type Book interface {
+	Probe(p *chess.Position) (chess.Move, bool)
+}
+
 type Engine struct {
 	in  io.Reader
 	out io.Writer
+
+	LoadBook func(path string) (Book, error)
+
+	book    Book
+	useBook bool
 
 	outMu sync.Mutex
 
@@ -97,7 +100,6 @@ func (r *running) halt() {
 	})
 }
 
-// New returns an engine that reads commands from in and writes replies to out.
 func New(in io.Reader, out io.Writer) *Engine {
 	e := &Engine{in: in, out: out, overhead: defaultOverhead}
 	engine.PreserveTT = true
@@ -121,8 +123,6 @@ func (e *Engine) newGame() {
 	engine.TT.Clear()
 }
 
-// Run reads commands until "quit" or the end of the input. A running search is
-// finished (or stopped, if it has no end) before Run returns.
 func (e *Engine) Run() error {
 	scanner := bufio.NewScanner(e.in)
 	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
@@ -159,6 +159,9 @@ func (e *Engine) handle(cmd Command) (quit bool) {
 		e.send("id name %s", Name)
 		e.send("id author %s", Author)
 		e.send("option name Hash type spin default %d min 1 max %d", defaultHashMB, maxHashMB)
+		e.send("option name Threads type spin default 1 min 1 max %d", maxThreads)
+		e.send("option name OwnBook type check default false")
+		e.send("option name BookFile type string default <empty>")
 		e.send("option name Move Overhead type spin default %d min 0 max %d", defaultOverhead.Milliseconds(), maxOverheadMS)
 		e.send("uciok")
 	case IsReady:
@@ -187,7 +190,6 @@ func (e *Engine) handle(cmd Command) (quit bool) {
 	return false
 }
 
-// setPosition replaces the position only if every move in the command is legal.
 func (e *Engine) setPosition(args PositionArgs) error {
 	fen := chess.StartingFEN
 	if args.FEN != "" {
@@ -230,6 +232,41 @@ func (e *Engine) setOption(o OptionArgs) {
 		e.settle()
 
 		engine.TT = engine.NewTranspositionTable(mb)
+	case "threads":
+		n, err := strconv.Atoi(o.Value)
+		if err != nil || n < 1 || n > maxThreads {
+			e.send("info string Threads must be a number from 1 to %d", maxThreads)
+
+			return
+		}
+
+		e.settle()
+
+		engine.Threads = n
+	case "ownbook":
+		switch strings.ToLower(o.Value) {
+		case "true":
+			e.useBook = true
+		case "false":
+			e.useBook = false
+		default:
+			e.send("info string OwnBook must be true or false")
+		}
+	case "bookfile":
+		if e.LoadBook == nil {
+			e.send("info string opening books are not available")
+
+			return
+		}
+
+		book, err := e.LoadBook(o.Value)
+		if err != nil {
+			e.send("info string cannot load book: %v", err)
+
+			return
+		}
+
+		e.book = book
 	case "move overhead":
 		ms, err := strconv.Atoi(o.Value)
 		if err != nil || ms < 0 || ms > maxOverheadMS {
@@ -246,6 +283,14 @@ func (e *Engine) setOption(o OptionArgs) {
 
 func (e *Engine) startSearch(g GoArgs) {
 	e.settle()
+
+	if e.useBook && e.book != nil && !g.Infinite && !g.Ponder {
+		if move, ok := e.book.Probe(&e.pos); ok {
+			e.send("bestmove %s", FormatMove(move))
+
+			return
+		}
+	}
 
 	pos := e.pos
 	limit, depth := Budget(g, pos.SideToMove, e.overhead)
@@ -268,7 +313,6 @@ func (e *Engine) startSearch(g GoArgs) {
 
 		best, ok := engine.IterativeSearchWithInfo(&pos, depth, limit, e.reportInfo())
 
-		// In infinite mode the GUI must stop the search before the engine answers.
 		if r.infinite {
 			<-r.stop
 		}
@@ -312,7 +356,6 @@ func (e *Engine) reportInfo() func(engine.SearchInfo) {
 	}
 }
 
-// stopSearch ends the running search, if any, and waits for its bestmove.
 func (e *Engine) stopSearch() {
 	if e.search == nil {
 		return
@@ -325,9 +368,6 @@ func (e *Engine) stopSearch() {
 	e.search = nil
 }
 
-// settle gets the engine idle before a command that changes its state. A search
-// with a limit is allowed to finish and send its bestmove. A search without one
-// would never end, so it is stopped.
 func (e *Engine) settle() {
 	if e.search != nil && e.search.infinite {
 		e.stopSearch()
@@ -338,7 +378,6 @@ func (e *Engine) settle() {
 	e.waitSearch()
 }
 
-// waitSearch lets the running search finish on its own.
 func (e *Engine) waitSearch() {
 	if e.search == nil {
 		return

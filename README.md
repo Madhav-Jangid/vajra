@@ -100,19 +100,19 @@ Checked milestones have implementation in the repository and are covered by the 
 
 ### Phase 8: Performance engineering
 
-- [ ] **41.** CPU and memory profiling
-- [ ] **42.** Profile-guided board and move-generation optimization
+- [x] **41.** CPU and memory profiling (`go test -cpuprofile`/`-memprofile` on `BenchmarkSearchFixedDepth`; the profile found the string-keyed `PieceAt` lookup at about 60% of CPU)
+- [x] **42.** Profile-guided board and move-generation optimization (`internal/chess/attacks.go`, `internal/chess/board.go`, `internal/chess/movegen.go`; search went from about 60k to about 300k nodes per second with identical node counts)
 - [x] **43.** Search nodes-per-second benchmark (`BenchmarkSearchFixedDepth` and `BenchmarkSearchTimeBudget` in `internal/engine/bench_test.go`)
-- [ ] **44.** Comparative evaluation of bitboards (the current board already uses per-piece bitboards)
-- [ ] **45.** Allocation and garbage-collection optimization
+- [x] **44.** Comparative evaluation of bitboards (square-walking attack detection replaced by attack tables and ray lookups: perft about 2.0M to 6-8M nodes per second, `LegalMoves` 43.6us to 7.2us)
+- [x] **45.** Allocation and garbage-collection optimization (append-style move generation: about 1,000,000 to about 47,000 allocations per search)
 
 ### Phase 9: Advanced engine features and delivery
 
-- [ ] **46.** Opening book support
-- [ ] **47.** Endgame tablebases (including the proposed KPK bitbase)
-- [ ] **48.** Multi-threaded search
-- [ ] **49.** Engine strength benchmarking and rating estimation
-- [ ] **50.** Automated regression pipeline and release builds
+- [x] **46.** Opening book support (`internal/book`; UCI options `OwnBook` and `BookFile`; text format with one line of UCI moves per game line)
+- [x] **47.** Endgame tablebases: KPK bitbase only (`internal/engine/kpk.go`, built by retrograde analysis and used by `Evaluate`; no other tablebases)
+- [x] **48.** Multi-threaded search (Lazy SMP in `internal/engine/analysis.go`; UCI option `Threads`; shared table with striped locks)
+- [x] **49.** Engine strength benchmarking and rating estimation (`internal/elo`, `internal/match`, `cmd/match`: Elo difference between two configurations, with an optional anchor rating)
+- [x] **50.** Automated regression pipeline and release builds (`.github/workflows/ci.yml`; written and cross-compiled locally, not yet run on GitHub)
 
 ## Verification and remaining work
 
@@ -124,15 +124,21 @@ go test ./...
 
 The suite includes rule and perft tests, engine evaluation/search tests, UCI parser/session tests, and automated engine self-play that checks every chosen move for legality. Benchmarks are available with `go test ./internal/engine -run '^$' -bench 'BenchmarkSearch(FixedDepth|TimeBudget)$'`; the benchmark reports nodes per second, nodes per search, depth, and transposition-table occupancy.
 
-Unchecked milestones remain open: integration with an external UCI GUI (34); CPU/memory profiling, profile-guided optimization, comparative board-representation evaluation, and allocation/GC optimization (41, 42, 44, 45); opening book and tablebase support (46, 47); parallel search (48); strength/rating measurement (49); and CI regression automation/release builds (50). The board already uses bitboards, but no comparative evaluation against another representation is documented. The browser app connects to the local server at `ws://localhost:8080/ws`; promotion selection in the browser UI is not exposed.
+Open items and limits: the CI workflow has not run on GitHub yet, and the data-race check (`go test -race`) needs a C compiler, so it runs only in CI. Tablebase support covers king and pawn against king only. The opening book is a plain text format, not Polyglot. `cmd/match` measures Elo differences between engine configurations, not an absolute rating, unless you pass `-anchor`. Threaded search is Lazy SMP and its node counts vary from run to run. The browser app connects to the local server at `ws://localhost:8080/ws`; promotion selection in the browser UI is not exposed.
 
 ## Project layout
 
 ```text
 cmd/chess/          Terminal chess game
 cmd/server/         HTTP and WebSocket game server
+cmd/uci/            UCI engine binary
+cmd/match/          Self-play strength benchmark
 internal/chess/     Position, rules, move generation, make/unmake
 internal/engine/    Evaluation and search
+internal/uci/       UCI protocol
+internal/book/      Opening book
+internal/elo/       Elo estimation
+internal/match/     Self-play match runner
 internal/utils/     CLI board and move helpers
 web/app/            Next.js browser application
 web/public/         Chess piece and sound assets

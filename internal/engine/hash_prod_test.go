@@ -312,7 +312,6 @@ func TestEvaluateRewardsMaterial(t *testing.T) {
 	base := "4k3/8/8/8/8/8/8/4K3 w - - 0 1"
 
 	extras := map[string]int{
-		"4k3/8/8/8/8/8/P7/4K3 w - - 0 1": PawnValue,
 		"4k3/8/8/8/8/8/8/3NK3 w - - 0 1": KnightValue,
 		"4k3/8/8/8/8/8/8/3BK3 w - - 0 1": BishopValue,
 		"4k3/8/8/8/8/8/8/3RK3 w - - 0 1": RookValue,
@@ -325,7 +324,6 @@ func TestEvaluateRewardsMaterial(t *testing.T) {
 	var last int
 
 	for _, order := range []string{
-		"4k3/8/8/8/8/8/P7/4K3 w - - 0 1",
 		"4k3/8/8/8/8/8/8/3NK3 w - - 0 1",
 		"4k3/8/8/8/8/8/8/3RK3 w - - 0 1",
 		"4k3/8/8/8/8/8/8/3QK3 w - - 0 1",

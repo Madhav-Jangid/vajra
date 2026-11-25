@@ -18,8 +18,6 @@ var (
 	ErrBadMove      = errors.New("bad move")
 )
 
-// ParseCommand parses one line from the GUI. Unknown commands are returned with
-// Kind Unknown and no error, because UCI says unknown input must be ignored.
 func ParseCommand(line string) (Command, error) {
 	fields := strings.Fields(line)
 	if len(fields) == 0 {
@@ -99,7 +97,6 @@ func parsePosition(tokens []string) (PositionArgs, error) {
 			return PositionArgs{}, fmt.Errorf("%w: a FEN needs 4 to 6 fields, got %d", ErrBadPosition, len(fen))
 		}
 
-		// Some GUIs leave out the move counters.
 		for len(fen) < 6 {
 			if len(fen) == 4 {
 				fen = append(fen[:4:4], "0")
@@ -253,7 +250,6 @@ func parseOption(tokens []string) (OptionArgs, error) {
 
 const nullMove = "0000"
 
-// FormatMove writes a move in UCI coordinate notation: "e2e4", "e7e8q".
 func FormatMove(m chess.Move) string {
 	if m == (chess.Move{}) {
 		return nullMove
@@ -289,7 +285,6 @@ func parseSquare(s string) (int, bool) {
 	return int(s[0]-'a') + int(s[1]-'1')*8, true
 }
 
-// ParseMove finds the legal move in p that matches a UCI coordinate string.
 func ParseMove(p *chess.Position, s string) (chess.Move, error) {
 	if len(s) != 4 && len(s) != 5 {
 		return chess.Move{}, fmt.Errorf("%w: %q", ErrBadMove, s)

@@ -1,0 +1,82 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - run: go vet ./cmd/... ./internal/...
+      - run: go build ./cmd/... ./internal/...
+      - run: go test -count=1 -timeout 20m ./cmd/... ./internal/...
+
+  race:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - run: go test -race -count=1 -timeout 30m ./internal/chess ./internal/engine ./internal/uci ./internal/book
+
+  strength:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - run: go run ./cmd/match -openings 6 -depth-a 3 -depth-b 2 -max-plies 120 -min-score 0.6
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [test, race, strength]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: build
+        env:
+          CGO_ENABLED: "0"
+          VERSION: ${{ github.ref_name }}
+        run: |
+          mkdir dist
+          for target in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64; do
+            os=${target%/*}
+            arch=${target#*/}
+            name=vajra-${VERSION}-${os}-${arch}
+            ext=""
+            if [ "$os" = windows ]; then ext=".exe"; fi
+            mkdir "dist/${name}"
+            GOOS=$os GOARCH=$arch go build -trimpath -ldflags "-s -w" -o "dist/${name}/vajra${ext}" ./cmd/uci
+            if [ "$os" = windows ]; then
+              (cd dist && zip -qr "${name}.zip" "${name}")
+            else
+              tar -C dist -czf "dist/${name}.tar.gz" "${name}"
+            fi
+            rm -r "dist/${name}"
+          done
+          (cd dist && sha256sum * > checksums.txt)
+      - name: publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "${{ github.ref_name }}" dist/* --generate-notes

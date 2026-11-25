@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"sync/atomic"
 	"time"
 
 	"vajra/internal/chess"
@@ -18,7 +19,7 @@ func quiescence(
 		return 0, false
 	}
 
-	Nodes++
+	atomic.AddUint64(&Nodes, 1)
 
 	moves := allMoves(p)
 

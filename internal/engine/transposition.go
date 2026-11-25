@@ -1,6 +1,10 @@
 package engine
 
-import "vajra/internal/chess"
+import (
+	"sync"
+
+	"vajra/internal/chess"
+)
 
 type TTFlag uint8
 
@@ -20,9 +24,12 @@ type TTEntry struct {
 	BestMove chess.Move
 }
 
+const ttStripes = 1024
+
 type TranspositionTable struct {
 	entries []TTEntry
 	gen     uint32
+	locks   [ttStripes]sync.Mutex
 }
 
 func NewTranspositionTable(sizeMB int) *TranspositionTable {
@@ -66,7 +73,11 @@ func (tt *TranspositionTable) Probe(key uint64) (TTEntry, bool) {
 		return TTEntry{}, false
 	}
 
-	entry := tt.entries[tt.index(key)]
+	index := tt.index(key)
+
+	tt.locks[index%ttStripes].Lock()
+	entry := tt.entries[index]
+	tt.locks[index%ttStripes].Unlock()
 
 	if !entry.Valid || entry.Gen != tt.gen || entry.Key != key {
 		return TTEntry{}, false
@@ -87,6 +98,10 @@ func (tt *TranspositionTable) Store(
 	}
 
 	index := tt.index(key)
+
+	tt.locks[index%ttStripes].Lock()
+	defer tt.locks[index%ttStripes].Unlock()
+
 	old := tt.entries[index]
 
 	if old.Valid && old.Gen == tt.gen && old.Key == key && old.Depth > depth {

@@ -2,6 +2,7 @@ package engine
 
 import (
 	"math/bits"
+	"sync/atomic"
 	"time"
 
 	"vajra/internal/chess"
@@ -31,6 +32,15 @@ const MaxPly = 128
 type SearchState struct {
 	killers KillerTable
 	history HistoryTable
+	path    *[]uint64
+}
+
+func (s *SearchState) pathRef() *[]uint64 {
+	if s.path != nil {
+		return s.path
+	}
+
+	return &history
 }
 
 type KillerTable struct {
@@ -52,7 +62,7 @@ func evalSide(p *chess.Position) int {
 }
 
 func expired(deadline time.Time) bool {
-	if stopRequested.Load() {
+	if stopRequested.Load() || helpersStop.Load() {
 		return true
 	}
 
@@ -64,10 +74,14 @@ func expired(deadline time.Time) bool {
 }
 
 func isRepetition(hash uint64, halfmove int) bool {
-	limit := max(len(history)-halfmove, 0)
+	return repeatedIn(history, hash, halfmove)
+}
 
-	for i := len(history) - 2; i >= limit; i -= 2 {
-		if history[i] == hash {
+func repeatedIn(path []uint64, hash uint64, halfmove int) bool {
+	limit := max(len(path)-halfmove, 0)
+
+	for i := len(path) - 2; i >= limit; i -= 2 {
+		if path[i] == hash {
 			return true
 		}
 	}
@@ -161,8 +175,9 @@ func searchRootWindow(
 
 	hash := HashPosition(p)
 
-	history = append(history, hash)
-	defer func() { history = history[:len(history)-1] }()
+	path := state.pathRef()
+	*path = append(*path, hash)
+	defer func() { *path = (*path)[:len(*path)-1] }()
 
 	for i, m := range moves {
 		if expired(deadline) {
@@ -276,7 +291,7 @@ func negamaxSearch(
 	allowNull bool,
 ) (int, bool) {
 
-	Nodes++
+	atomic.AddUint64(&Nodes, 1)
 
 	if expired(deadline) {
 		return 0, false
@@ -291,12 +306,14 @@ func negamaxSearch(
 		return 0, true
 	}
 
-	if isRepetition(hash, p.HalfmoveClock) || insufficientMaterial(p) {
+	path := state.pathRef()
+
+	if repeatedIn(*path, hash, p.HalfmoveClock) || insufficientMaterial(p) {
 		return 0, true
 	}
 
-	history = append(history, hash)
-	defer func() { history = history[:len(history)-1] }()
+	*path = append(*path, hash)
+	defer func() { *path = (*path)[:len(*path)-1] }()
 
 	originalAlpha := alpha
 

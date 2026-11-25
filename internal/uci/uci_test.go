@@ -2,6 +2,7 @@ package uci
 
 import (
 	"bytes"
+	"errors"
 	"io"
 	"strings"
 	"sync"
@@ -16,10 +17,10 @@ import (
 func restoreEngineState(t *testing.T) {
 	t.Helper()
 
-	oldTT, oldHistory := engine.TT, engine.GameHistory
+	oldTT, oldHistory, oldThreads := engine.TT, engine.GameHistory, engine.Threads
 
 	t.Cleanup(func() {
-		engine.TT, engine.GameHistory = oldTT, oldHistory
+		engine.TT, engine.GameHistory, engine.Threads = oldTT, oldHistory, oldThreads
 
 		engine.ClearStop()
 	})
@@ -78,6 +79,9 @@ func TestHandshake(t *testing.T) {
 		"id name Vajra",
 		"id author Madhav Jangid",
 		"option name Hash type spin default 64 min 1 max 1024",
+		"option name Threads type spin default 1 min 1 max 64",
+		"option name OwnBook type check default false",
+		"option name BookFile type string default <empty>",
 		"option name Move Overhead type spin default 50 min 0 max 5000",
 		"uciok",
 		"readyok",
@@ -647,5 +651,180 @@ func TestNewGameAfterASearchStartsClean(t *testing.T) {
 
 	if got := len(linesWithPrefix(lines, "bestmove ")); got != 2 {
 		t.Fatalf("want 2 answers, got %d in %v", got, lines)
+	}
+}
+
+func TestThreadsOption(t *testing.T) {
+	lines := session(t, "setoption name Threads value 3\nposition startpos\ngo depth 4\nd\n")
+
+	if engine.Threads != 3 {
+		t.Fatalf("Threads = %d, want 3", engine.Threads)
+	}
+
+	p := position(t, chess.StartingFEN)
+
+	if _, err := ParseMove(&p, bestMove(t, lines)); err != nil {
+		t.Fatalf("the threaded search returned an illegal move: %v", err)
+	}
+}
+
+func TestThreadsOptionRejectsBadValues(t *testing.T) {
+	for _, bad := range []string{
+		"setoption name Threads value 0",
+		"setoption name Threads value -2",
+		"setoption name Threads value 1000",
+		"setoption name Threads value many",
+		"setoption name Threads",
+	} {
+		lines := session(t, bad+"\nisready\n")
+
+		if len(lines) != 2 || !strings.HasPrefix(lines[0], "info string Threads must be") || lines[1] != "readyok" {
+			t.Fatalf("%q: got %v", bad, lines)
+		}
+
+		if engine.Threads != 1 {
+			t.Fatalf("%q changed Threads to %d", bad, engine.Threads)
+		}
+	}
+}
+
+func TestThreadedInfiniteSearchStops(t *testing.T) {
+	l := startLive(t)
+
+	l.send(t, "setoption name Threads value 4")
+	l.send(t, "position startpos")
+	l.send(t, "go infinite")
+
+	if _, ok := l.out.waitFor("info depth 3 ", 5*time.Second); !ok {
+		t.Fatalf("no output from the threaded search: %v", l.out.snapshot())
+	}
+
+	l.send(t, "stop")
+
+	if _, ok := l.out.waitFor("bestmove ", 5*time.Second); !ok {
+		t.Fatalf("no bestmove after stop: %v", l.out.snapshot())
+	}
+}
+
+type fakeBook map[string]string
+
+func (f fakeBook) Probe(p *chess.Position) (chess.Move, bool) {
+	text, ok := f[p.FEN()]
+	if !ok {
+		return chess.Move{}, false
+	}
+
+	m, err := ParseMove(p, text)
+
+	return m, err == nil
+}
+
+func bookSession(t *testing.T, book Book, loadErr error, script string) []string {
+	t.Helper()
+
+	restoreEngineState(t)
+
+	var out bytes.Buffer
+
+	e := New(strings.NewReader(script), &out)
+
+	e.LoadBook = func(path string) (Book, error) {
+		if loadErr != nil {
+			return nil, loadErr
+		}
+
+		return book, nil
+	}
+
+	if err := e.Run(); err != nil {
+		t.Fatal(err)
+	}
+
+	var lines []string
+
+	for _, l := range strings.Split(out.String(), "\n") {
+		if l = strings.TrimSpace(l); l != "" {
+			lines = append(lines, l)
+		}
+	}
+
+	return lines
+}
+
+var startBook = fakeBook{chess.StartingFEN: "d2d4"}
+
+func TestBookMoveIsPlayedWithoutSearching(t *testing.T) {
+	lines := bookSession(t, startBook, nil, "setoption name BookFile value any.txt\nsetoption name OwnBook value true\nposition startpos\ngo depth 20\n")
+
+	if len(lines) != 1 || lines[0] != "bestmove d2d4" {
+		t.Fatalf("want only the book move, got %v", lines)
+	}
+}
+
+func TestBookIsOffByDefault(t *testing.T) {
+	lines := bookSession(t, startBook, nil, "setoption name BookFile value any.txt\nposition startpos\ngo depth 2\n")
+
+	if len(linesWithPrefix(lines, "info depth ")) == 0 {
+		t.Fatalf("OwnBook is off, the engine should search: %v", lines)
+	}
+}
+
+func TestBookMissFallsBackToSearch(t *testing.T) {
+	lines := bookSession(t, startBook, nil, "setoption name BookFile value any.txt\nsetoption name OwnBook value true\nposition startpos moves e2e4\ngo depth 2\n")
+
+	if len(linesWithPrefix(lines, "info depth ")) == 0 {
+		t.Fatalf("a position outside the book should be searched: %v", lines)
+	}
+
+	bestMove(t, lines)
+}
+
+func TestBookCanBeSwitchedOff(t *testing.T) {
+	script := "setoption name BookFile value any.txt\nsetoption name OwnBook value true\nsetoption name OwnBook value false\nposition startpos\ngo depth 2\n"
+
+	if lines := bookSession(t, startBook, nil, script); len(linesWithPrefix(lines, "info depth ")) == 0 {
+		t.Fatalf("OwnBook was switched off: %v", lines)
+	}
+}
+
+func TestBookIsIgnoredForInfiniteSearches(t *testing.T) {
+	l := startLive(t)
+
+	l.send(t, "setoption name OwnBook value true")
+	l.send(t, "position startpos")
+	l.send(t, "go infinite")
+
+	if _, ok := l.out.waitFor("info depth 2 ", 5*time.Second); !ok {
+		t.Fatalf("an infinite search must search: %v", l.out.snapshot())
+	}
+
+	l.send(t, "stop")
+	l.out.waitFor("bestmove ", 5*time.Second)
+}
+
+func TestBookOptionErrors(t *testing.T) {
+	lines := session(t, "setoption name OwnBook value maybe\nsetoption name BookFile value x.txt\nisready\n")
+
+	infos := linesWithPrefix(lines, "info string ")
+	if len(infos) != 2 || lines[len(lines)-1] != "readyok" {
+		t.Fatalf("want two errors then readyok, got %v", lines)
+	}
+
+	if !strings.Contains(infos[1], "not available") {
+		t.Fatalf("without a loader the engine should say so, got %q", infos[1])
+	}
+
+	lines = bookSession(t, nil, errors.New("no such file"), "setoption name BookFile value x.txt\nisready\n")
+
+	if len(lines) != 2 || !strings.Contains(lines[0], "cannot load book: no such file") {
+		t.Fatalf("got %v", lines)
+	}
+}
+
+func TestOwnBookIsCaseInsensitive(t *testing.T) {
+	script := "setoption name BookFile value a.txt\nsetoption name ownbook value TRUE\nposition startpos\ngo depth 9\n"
+
+	if lines := bookSession(t, startBook, nil, script); len(lines) != 1 || lines[0] != "bestmove d2d4" {
+		t.Fatalf("got %v", lines)
 	}
 }

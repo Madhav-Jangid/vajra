@@ -3,25 +3,32 @@ package chess
 import "math/bits"
 
 func (p *Position) LegalMoves(square int) Moves {
-	piece := p.Board.PieceAt(square)
+	return p.AppendLegalMoves(nil, square)
+}
 
-	if piece.Type == Empty {
-		return nil
+func (p *Position) AppendLegalMoves(dst Moves, square int) Moves {
+	if square < 0 || square >= 64 {
+		return dst
 	}
 
-	var legal Moves
+	piece := p.Board.PieceAt(square)
+	if piece.Type == Empty {
+		return dst
+	}
 
-	for _, move := range p.GenerateMoves(square) {
+	var buf [64]Move
+
+	for _, move := range p.appendMoves(buf[:0], square) {
 		undo := p.MakeMove(move)
 
 		if !p.InCheck(piece.Color) {
-			legal = append(legal, move)
+			dst = append(dst, move)
 		}
 
 		p.UnmakeMove(move, undo)
 	}
 
-	return legal
+	return dst
 }
 
 func (p *Position) pinnedPieces(color Color, kingSq int) Bitboard {
@@ -45,7 +52,7 @@ func (p *Position) pinnedPieces(color Color, kingSq int) Bitboard {
 	kr, kf := kingSq/8, kingSq%8
 	var pinned Bitboard
 
-	scan := func(dirs [4][2]int, sliders Bitboard) {
+	scan := func(dirs Directions, sliders Bitboard) {
 		if sliders == 0 {
 			return
 		}
@@ -73,8 +80,8 @@ func (p *Position) pinnedPieces(color Color, kingSq int) Bitboard {
 		}
 	}
 
-	scan(rookDirs, enemyRQ)
-	scan(bishopDirs, enemyBQ)
+	scan(rookDirections, enemyRQ)
+	scan(bishopDirections, enemyBQ)
 	return pinned
 }
 
@@ -97,10 +104,11 @@ func (p *Position) AllLegalMoves() Moves {
 	}
 
 	moves := make(Moves, 0, 48)
+	var buf [64]Move
 	for bb := uint64(ownOcc); bb != 0; bb &= bb - 1 {
 		sq := bits.TrailingZeros64(bb)
 		needCheck := inCheck || sq == kingSq || (pinned&(Bitboard(1)<<uint(sq))) != 0
-		for _, move := range p.GenerateMoves(sq) {
+		for _, move := range p.appendMoves(buf[:0], sq) {
 			if !needCheck && move.Flags&EnPassant == 0 {
 				moves = append(moves, move)
 				continue

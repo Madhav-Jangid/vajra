@@ -1,22 +1,24 @@
 package engine
 
 import (
+	"sync"
 	"sync/atomic"
 	"time"
 
 	"vajra/internal/chess"
 )
 
-var stopRequested atomic.Bool
+var (
+	stopRequested atomic.Bool
+	helpersStop   atomic.Bool
 
-// RequestStop makes the running search return as soon as it can, keeping the
-// best move found so far. It stays in effect until ClearStop is called.
+	Threads = 1
+)
+
 func RequestStop() { stopRequested.Store(true) }
 
-// ClearStop re-arms the engine for a new search.
 func ClearStop() { stopRequested.Store(false) }
 
-// SearchInfo describes one completed iteration of IterativeSearchWithInfo.
 type SearchInfo struct {
 	Depth    int
 	Score    int
@@ -27,8 +29,6 @@ type SearchInfo struct {
 	PV       []chess.Move
 }
 
-// MateIn returns how many moves away a mate score is (positive when the side to
-// move delivers it, negative when it is mated) and whether the score is a mate.
 func MateIn(score int) (int, bool) {
 	switch {
 	case score >= MateScore-1000:
@@ -40,9 +40,6 @@ func MateIn(score int) (int, bool) {
 	return 0, false
 }
 
-// IterativeSearchWithInfo behaves like IterativeSearch and calls report after
-// every completed iteration. The score is from the side to move's point of view.
-// A zero timeLimit means no time limit; RequestStop still ends the search.
 func IterativeSearchWithInfo(
 	p *chess.Position,
 	maxDepth int,
@@ -54,6 +51,8 @@ func IterativeSearchWithInfo(
 	start := time.Now()
 	deadline := startSearch(timeLimit)
 	state := &SearchState{}
+
+	defer startHelpers(p, maxDepth, deadline)()
 
 	var best chess.Move
 
@@ -141,9 +140,6 @@ func extractPV(p *chess.Position, rootMove chess.Move, maxLen int) []chess.Move 
 	}
 	return pv
 }
-
-// mateProven reports whether a mate score has been searched one ply deeper than
-// the mate itself, so searching further cannot change the answer.
 func mateProven(score, depth int) bool {
 	if _, ok := MateIn(score); !ok {
 		return false
@@ -154,4 +150,41 @@ func mateProven(score, depth int) bool {
 	}
 
 	return depth > MateScore-score
+}
+
+func startHelpers(p *chess.Position, maxDepth int, deadline time.Time) func() {
+	helpersStop.Store(false)
+
+	var wg sync.WaitGroup
+
+	for id := 1; id < Threads; id++ {
+		wg.Add(1)
+
+		go func(id int, pos chess.Position) {
+			defer wg.Done()
+
+			path := append([]uint64(nil), GameHistory...)
+			state := &SearchState{path: &path}
+
+			var best chess.Move
+
+			for depth := 1 + id%2; depth <= maxDepth; depth++ {
+				move, ok, completed, _ := searchRootScored(&pos, depth, deadline, best, state)
+
+				if ok {
+					best = move
+				}
+
+				if !completed {
+					return
+				}
+			}
+		}(id, *p)
+	}
+
+	return func() {
+		helpersStop.Store(true)
+		wg.Wait()
+		helpersStop.Store(false)
+	}
 }

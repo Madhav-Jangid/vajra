@@ -488,7 +488,7 @@ func TestQuiescenceTactics(t *testing.T) {
 		p := fromRows(chess.White, []string{
 			"........",
 			"P.......",
-			"........",
+			".......p",
 			"........",
 			"........",
 			".......k",
