@@ -37,10 +37,12 @@ jobs:
           sudo apt-get install -y \
             qt6-base-dev \
             qt6-base-dev-tools \
+            qt6-svg-dev \
             libqt6core6 \
             libqt6gui6 \
             libqt6network6 \
             libqt6widgets6 \
+            libqt6svg6 \
             cmake \
             build-essential \
             git
@@ -52,6 +54,7 @@ jobs:
           cmake -B build -DCUTECHESS_WITH_GUI=OFF
           cmake --build build --config Release -j2
 
+          
       - name: Test Vajra UCI
         run: |
           printf "uci\nisready\nquit\n" | ./vajra
