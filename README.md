@@ -55,7 +55,7 @@ Add the `vajra` executable to your GUI as a UCI engine. No other files are neede
 
 You can also talk to it directly:
 
-```
+```text
 $ ./vajra
 uci
 ...
@@ -94,9 +94,28 @@ Measured on an Intel Core i7-12700 with 16 GB of memory. Full tables, the method
 | Self-play, each extra ply of depth | +137 to +280 Elo over four matches of 24 games |
 | Binary size | 2.0 MB |
 
+### Engine strength
+
+Vajra 0.1.0 was tested against Stockfish configured at 2700 Elo in a 400-game engine-vs-engine match.
+
+| | Result |
+| --- | ---: |
+| Games | 400 |
+| Stockfish score | 74% |
+| Vajra score | 27% |
+| Draws | 14% |
+| Estimated Vajra rating | **2512 Elo** |
+| BayesElo uncertainty | +17 / -16 |
+
+The rating is a **test-specific estimate against Stockfish configured at 2700**, not a FIDE rating.
+
+The 400 games were split into two 200-game tournaments using the same configuration. The individual estimates were 2490 and 2535 Elo, a 45 Elo difference between runs. The combined 400-game result was 2512 Elo.
+
 ### How strong is it?
 
-Not yet measured against other engines, so there is no rating to quote. Self-play shows that each extra ply of search is worth roughly 150 to 250 Elo at the depths tested, with wide error margins because each match was only 24 games. Self-play gains overstate gains against other engines. If you play Vajra in a gauntlet against other engines, please share the result.
+Vajra 0.1.0 currently measures at approximately **2510 Elo** against Stockfish configured at 2700 under the tournament conditions used for this test.
+
+The engine should not be interpreted as having a universal 2512 Elo rating. Engine ratings depend on the opponent, time control, hardware, configuration, opening selection and tournament conditions.
 
 You can measure the effect of any change yourself:
 
@@ -104,7 +123,9 @@ You can measure the effect of any change yourself:
 go run ./cmd/match -depth-a 5 -depth-b 4
 ```
 
-### Known limits
+For engine changes, compare both the deterministic benchmark and playing strength under the same test configuration.
+
+## Known limits
 
 - Vajra has been tested through its protocol test suite and scripted sessions. It has not been checked in specific GUIs yet. Reports are welcome.
 - No pondering, no Chess960, and `searchmoves` and `go mate` are ignored.
@@ -126,18 +147,18 @@ go run ./cmd/match -depth-a 5 -depth-b 4
 
 ```text
 cmd/
-  uci/         the engine executable (vajra)
-  server/      HTTP and WebSocket server for the web UI
-  chess/       terminal game
-  match/       self-play strength benchmark
+  uci/        the engine executable (vajra)
+  server/     HTTP and WebSocket server for the web UI
+  chess/      terminal game
+  match/      self-play strength benchmark
 internal/
-  chess/       board, move generation, rules
-  engine/      search, evaluation, transposition table, bitbase, threads
-  uci/         UCI protocol, time management, bench
-  book/        opening book
-  elo/         Elo estimation
-  match/       self-play match runner
-  utils/       helpers for the terminal game
+  chess/      board, move generation, rules
+  engine/     search, evaluation, transposition table, bitbase, threads
+  uci/        UCI protocol, time management, bench
+  book/       opening book
+  elo/        Elo estimation
+  match/      self-play match runner
+  utils/      helpers for the terminal game
 web/           Next.js browser UI
 docs/          documentation
 .github/       CI and release workflows

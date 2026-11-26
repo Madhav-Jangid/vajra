@@ -1,4 +1,4 @@
-name: Vajra vs Stockfish Tournament
+name: Vajra vs Stockfish Strength Ladder
 
 on:
   workflow_dispatch:
@@ -10,216 +10,69 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        batch: [1, 2, 3, 4, 5, 6, 7, 8]
+        stockfish_elo: [2100, 2200, 2300, 2400, 2500]
+        batch: [1, 2]
 
     steps:
-      # =========================================
-      # Checkout repository
-      # =========================================
-      - name: Checkout Vajra
+      - name: Checkout
         uses: actions/checkout@v4
 
-      # =========================================
-      # Setup Go
-      # =========================================
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
           go-version: "1.27"
 
-      # =========================================
-      # Build Vajra UCI
-      # =========================================
       - name: Build Vajra UCI
-        shell: bash
         run: |
-          set -e
+          go build -o vajra ./cmd/uci
 
-          echo "Go version:"
-          go version
-
-          echo
-          echo "Building Vajra UCI..."
-
-          GOOS=linux GOARCH=amd64 \
-            go build -o vajra ./cmd/uci
-
-          chmod +x ./vajra
-
-          echo
-          echo "Vajra binary:"
-          file ./vajra
-
-      # =========================================
-      # Prepare Stockfish
-      # =========================================
       - name: Prepare Stockfish
-        shell: bash
         run: |
-          set -e
-
-          STOCKFISH="./tools/stockfish/stockfish-linux-x86-64-universal"
-
-          echo "Looking for Stockfish at:"
-          echo "$STOCKFISH"
-
-          if [ ! -f "$STOCKFISH" ]; then
-            echo
-            echo "ERROR: Stockfish binary not found."
-            echo
-            echo "Files inside tools/stockfish:"
-            find ./tools/stockfish -maxdepth 2 -type f -print
-            exit 1
-          fi
-
-          cp "$STOCKFISH" ./stockfish
+          cp ./tools/stockfish/stockfish-linux-x86-64-universal ./stockfish
           chmod +x ./stockfish
 
-          echo
-          echo "Stockfish binary:"
-          file ./stockfish
-
-          echo
-          echo "Testing Stockfish UCI..."
-
-          timeout 10s ./stockfish <<EOF
-          uci
-          isready
-          quit
-          EOF
-
-          echo
-          echo "Stockfish UCI test passed."
-
-      # =========================================
-      # Install Cute Chess CLI
-      # =========================================
-      - name: Install Cute Chess CLI
-        shell: bash
+      - name: Install Cute Chess CLI dependencies
         run: |
-          set -e
-
-          echo "Installing Cute Chess dependencies..."
-
           sudo apt-get update
-
           sudo apt-get install -y \
-            git \
-            build-essential \
-            cmake \
             qt6-base-dev \
-            qt6-svg-dev
+            qt6-base-dev-tools \
+            libqt6core6 \
+            libqt6gui6 \
+            libqt6network6 \
+            libqt6widgets6 \
+            cmake \
+            build-essential \
+            git
 
-          echo
-          echo "Qt version:"
-          qmake6 --version || true
-
-          echo
-          echo "Cloning Cute Chess..."
-
-          git clone \
-            --depth 1 \
-            https://github.com/cutechess/cutechess.git
-
+      - name: Build Cute Chess CLI
+        run: |
+          git clone --depth 1 https://github.com/cutechess/cutechess.git
           cd cutechess
+          cmake -B build -DCUTECHESS_WITH_GUI=OFF
+          cmake --build build --config Release -j2
 
-          echo
-          echo "Cute Chess version:"
-          cat .version
-
-          echo
-          echo "Building Cute Chess..."
-
-          cmake -S . -B build
-          cmake --build build --parallel 2
-
-          echo
-          echo "Locating cutechess-cli..."
-
-          CLI=$(find build -type f -name "cutechess-cli" -print -quit)
-
-          if [ -z "$CLI" ]; then
-            echo
-            echo "ERROR: cutechess-cli was not found."
-
-            echo
-            echo "Executable files produced by build:"
-            find build -type f -executable -print
-
-            exit 1
-          fi
-
-          echo
-          echo "Found:"
-          echo "$CLI"
-
-          sudo cp "$CLI" /usr/local/bin/cutechess-cli
-          sudo chmod +x /usr/local/bin/cutechess-cli
-
-          echo
-          echo "Cute Chess version:"
-          cutechess-cli --version
-
-          echo
-          echo "Cute Chess CLI installed successfully."
-
-      # =========================================
-      # Test Vajra UCI
-      # =========================================
       - name: Test Vajra UCI
-        shell: bash
         run: |
-          set -e
+          printf "uci\nisready\nquit\n" | ./vajra
 
-          echo "Testing Vajra UCI..."
-
-          timeout 10s ./vajra <<EOF
-          uci
-          isready
-          quit
-          EOF
-
-          echo
-          echo "Vajra UCI test passed."
-
-      # =========================================
-      # Run Tournament
-      # =========================================
       - name: Run tournament
-        shell: bash
         run: |
-          set -e
-
           mkdir -p tournament
 
-          PGN="$GITHUB_WORKSPACE/tournament/vajra-stockfish-2700-batch-${{ matrix.batch }}.pgn"
+          PGN="$GITHUB_WORKSPACE/tournament/vajra-stockfish-${{ matrix.stockfish_elo }}-batch-${{ matrix.batch }}.pgn"
 
-          echo
-          echo "========================================="
-          echo "Starting Vajra vs Stockfish tournament"
-          echo "========================================="
-          echo
-          echo "Batch:        ${{ matrix.batch }}"
-          echo "Games:        25"
-          echo "Total games:  200"
-          echo "Stockfish:    2700 Elo"
-          echo "Threads:      1"
-          echo "Hash:         512 MB"
-          echo "Time control: 40 moves / 150 seconds"
-          echo "PGN:          $PGN"
-          echo
-
-          cutechess-cli \
+          ./cutechess/build/cutechess-cli \
             -engine \
               cmd="$GITHUB_WORKSPACE/vajra" \
               name="Vajra 0.1.0" \
               proto=uci \
             -engine \
               cmd="$GITHUB_WORKSPACE/stockfish" \
-              name="Stockfish 2700" \
+              name="Stockfish ${{ matrix.stockfish_elo }}" \
               proto=uci \
               option.UCI_LimitStrength=true \
-              option.UCI_Elo=2700 \
+              option.UCI_Elo=${{ matrix.stockfish_elo }} \
             -each \
               tc=40/150 \
               proto=uci \
@@ -231,48 +84,23 @@ jobs:
             -concurrency 1 \
             -pgnout "$PGN"
 
-      # =========================================
-      # Check Tournament Result
-      # =========================================
-      - name: Check tournament result
-        shell: bash
+      - name: Check PGN
         run: |
-          set -e
+          PGN="tournament/vajra-stockfish-${{ matrix.stockfish_elo }}-batch-${{ matrix.batch }}.pgn"
 
-          PGN="tournament/vajra-stockfish-2700-batch-${{ matrix.batch }}.pgn"
+          echo "Checking: $PGN"
 
           if [ ! -f "$PGN" ]; then
-            echo
-            echo "ERROR: PGN was not created."
+            echo "PGN file not found"
             exit 1
           fi
 
-          echo
-          echo "========================================="
-          echo "Tournament batch completed"
-          echo "========================================="
-          echo
-          echo "Batch: ${{ matrix.batch }}"
-          echo "Games: 25"
-          echo
-          echo "PGN size:"
-          wc -c "$PGN"
-
-          echo
-          echo "Games found:"
+          echo "Completed games:"
           grep -c '^\[Result ' "$PGN" || true
 
-          echo
-          echo "First game:"
-          head -40 "$PGN"
-
-      # =========================================
-      # Upload PGN
-      # =========================================
       - name: Upload tournament PGN
         uses: actions/upload-artifact@v4
         with:
-          name: vajra-stockfish-2700-batch-${{ matrix.batch }}
-          path: tournament/vajra-stockfish-2700-batch-${{ matrix.batch }}.pgn
+          name: vajra-stockfish-${{ matrix.stockfish_elo }}-batch-${{ matrix.batch }}
+          path: tournament/vajra-stockfish-${{ matrix.stockfish_elo }}-batch-${{ matrix.batch }}.pgn
           retention-days: 30
-          
